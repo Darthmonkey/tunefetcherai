@@ -1,1 +1,13 @@
 project_id = "wvyomxwvtzpxyggtwmim"
+
+[functions.search-musicbrainz]
+verify_jwt = false
+
+[functions.find-youtube-urls] 
+verify_jwt = false
+
+[functions.convert-audio]
+verify_jwt = false
+
+[functions.process-manual-url]
+verify_jwt = false

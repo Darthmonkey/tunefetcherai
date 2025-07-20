@@ -16,6 +16,9 @@ interface TrackInfo {
   name: string;
   youtubeUrl?: string;
   selected: boolean;
+  trackNumber?: number;
+  artist?: string;
+  duration?: number;
 }
 
 interface TrackTableProps {
@@ -80,7 +83,18 @@ export const TrackTable = ({ tracks, onTracksChange, albumName }: TrackTableProp
                     onCheckedChange={() => toggleTrackSelection(track.id)}
                   />
                 </TableCell>
-                <TableCell className="font-medium">{track.name}</TableCell>
+              <TableCell className="font-medium">
+                {track.trackNumber && <span className="text-muted-foreground mr-2">{track.trackNumber}.</span>}
+                {track.name}
+                {track.artist && track.artist !== albumName && (
+                  <div className="text-sm text-muted-foreground">by {track.artist}</div>
+                )}
+                {track.duration && (
+                  <div className="text-xs text-muted-foreground">
+                    {Math.floor(track.duration / 60)}:{(track.duration % 60).toString().padStart(2, '0')}
+                  </div>
+                )}
+              </TableCell>
                 <TableCell>
                   {track.youtubeUrl ? (
                     <div className="flex items-center gap-2">
