@@ -14,7 +14,201 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      download_jobs: {
+        Row: {
+          created_at: string
+          download_url: string | null
+          error_message: string | null
+          id: string
+          progress: number | null
+          session_id: string
+          status: string
+          track_ids: string[]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          download_url?: string | null
+          error_message?: string | null
+          id?: string
+          progress?: number | null
+          session_id: string
+          status?: string
+          track_ids: string[]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          download_url?: string | null
+          error_message?: string | null
+          id?: string
+          progress?: number | null
+          session_id?: string
+          status?: string
+          track_ids?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "download_jobs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "search_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      manual_urls: {
+        Row: {
+          created_at: string
+          download_url: string | null
+          error_message: string | null
+          id: string
+          status: string
+          title: string | null
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          download_url?: string | null
+          error_message?: string | null
+          id?: string
+          status?: string
+          title?: string | null
+          updated_at?: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          download_url?: string | null
+          error_message?: string | null
+          id?: string
+          status?: string
+          title?: string | null
+          updated_at?: string
+          url?: string
+        }
+        Relationships: []
+      }
+      search_sessions: {
+        Row: {
+          ai_prompt: string | null
+          album: string
+          artist: string
+          created_at: string
+          id: string
+          musicbrainz_data: Json | null
+          updated_at: string
+          year: number | null
+        }
+        Insert: {
+          ai_prompt?: string | null
+          album: string
+          artist: string
+          created_at?: string
+          id?: string
+          musicbrainz_data?: Json | null
+          updated_at?: string
+          year?: number | null
+        }
+        Update: {
+          ai_prompt?: string | null
+          album?: string
+          artist?: string
+          created_at?: string
+          id?: string
+          musicbrainz_data?: Json | null
+          updated_at?: string
+          year?: number | null
+        }
+        Relationships: []
+      }
+      tracks: {
+        Row: {
+          artist: string
+          created_at: string
+          duration: number | null
+          id: string
+          musicbrainz_id: string | null
+          selected: boolean | null
+          session_id: string
+          title: string
+          track_number: number | null
+        }
+        Insert: {
+          artist: string
+          created_at?: string
+          duration?: number | null
+          id?: string
+          musicbrainz_id?: string | null
+          selected?: boolean | null
+          session_id: string
+          title: string
+          track_number?: number | null
+        }
+        Update: {
+          artist?: string
+          created_at?: string
+          duration?: number | null
+          id?: string
+          musicbrainz_id?: string | null
+          selected?: boolean | null
+          session_id?: string
+          title?: string
+          track_number?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tracks_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "search_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      youtube_urls: {
+        Row: {
+          created_at: string
+          duration: number | null
+          id: string
+          quality_score: number | null
+          title: string | null
+          track_id: string
+          url: string
+          verified: boolean | null
+        }
+        Insert: {
+          created_at?: string
+          duration?: number | null
+          id?: string
+          quality_score?: number | null
+          title?: string | null
+          track_id: string
+          url: string
+          verified?: boolean | null
+        }
+        Update: {
+          created_at?: string
+          duration?: number | null
+          id?: string
+          quality_score?: number | null
+          title?: string | null
+          track_id?: string
+          url?: string
+          verified?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "youtube_urls_track_id_fkey"
+            columns: ["track_id"]
+            isOneToOne: false
+            referencedRelation: "tracks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
