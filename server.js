@@ -204,6 +204,7 @@ app.post('/api/download', async (req, res) => {
             const commandResult = await youtubeDl(url, {
                 extractAudio: true,
                 audioFormat: 'mp3',
+                audioQuality: '0',
                 output: outputPath,
             });
 
@@ -215,6 +216,14 @@ app.post('/api/download', async (req, res) => {
                 } else {
                     console.log(`[Server] Successfully sent ${trackName}.mp3`);
                 }
+
+              fs.unlink(outputPath, (unlinkErr) => {
+                if (unlinkErr) {
+                  console.error(`[Server] Error deleting temporary file ${outputPath}:`, unlinkErr);
+                } else {
+                  console.log(`[Server] Successfully deleted temporary file ${outputPath}`);
+                }
+              });
             });
 
             return true;
