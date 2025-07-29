@@ -1,8 +1,14 @@
 # Install dependencies
 npm install
 
-# Start the backend server in a new window
-Start-Process powershell -ArgumentList "-Command", "npm run server"
+# Build the frontend
+Write-Host "Building frontend..."
+npm run build
 
-# Start the frontend server in the current window
+# Start the backend server in the background
+Write-Host "Starting backend server..."
+Start-Process node -ArgumentList "server.js" -NoNewWindow
+
+# Start the frontend development server
+Write-Host "Starting frontend development server..."
 npm start
