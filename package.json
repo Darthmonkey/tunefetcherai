@@ -1,8 +1,8 @@
 {
   "name": "tunefetcherai",
   "private": true,
-  "version": "0.0.0",
   "type": "module",
+  "version": "0.0.0",
   "scripts": {
     "start": "vite",
     "build": "tsc && vite build",

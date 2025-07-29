@@ -4,7 +4,7 @@ import https from 'https';
 import url from 'url';
 import path from 'path';
 import { fileURLToPath } from 'url';
-const { youtubeDl } = require('youtube-dl-exec');
+import { youtubeDl } from 'youtube-dl-exec';
 import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
