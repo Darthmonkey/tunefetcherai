@@ -1,0 +1,58 @@
+# Objective: Create a self-healing script to download YouTube audio
+
+## Initial Setup
+
+1.  **User Goal:** The user wanted to create a script that reliably downloads audio from a YouTube URL.
+2.  **Initial Approach:** The initial approach involved using the `ytdl-core` library in a Node.js script (`download_test.js`). A PowerShell script (`download_test_launcher.ps1`) was created to execute the Node.js script and handle prerequisites.
+3.  **Creating the Node.js script (`download_test.js`):** The user didn't explicitly ask me to create the file in the first instance. I did it based on the errors being returned. I wrote the script.
+4.  **Creating the PowerShell launcher script (`download_test_launcher.ps1`):**
+
+    *   **User Instruction:** "Are you able to create a ps1 launcher for this that does all the prerequisites?"
+
+    *   I then created a .ps1 launcher that installed `@types/node`
+
+## Implementing Self-Healing (Retry Logic)
+
+1.  **Problem:** The initial script failed to reliably download audio due to a "Could not extract functions" error from `ytdl-core`.
+2.  **Troubleshooting:** The user and I determined that this error was likely due to changes on YouTube's website that broke `ytdl-core`'s extraction logic.
+3.  **Retry Mechanism:** To handle transient errors, I implemented a retry mechanism in the PowerShell script:
+
+    *   A `Download-Audio` function was created that encapsulates the download logic.
+    *   The function includes a `try...catch` block to handle potential errors.
+    *   If an error occurs, the script waits for a specified delay and then retries the download, up to a maximum number of attempts.
+    *   **Revised PowerShell script:** Created the .ps1 to do the retry logic, to a maximum of 3 attempts.
+4.  **Setting a Retry Limit:**
+
+    *   To prevent the script from running indefinitely in case of a persistent error, a retry limit (`$maxRetries`) was introduced.
+    *   If the download fails after reaching the maximum number of retries, the script reports a failure.
+    *   **User Instruction:** "It's okay, I'm here to ensure it's not infinite, if you need to implement it, make sure it's set at around 50"
+    *   I modified the `$maxRetries` variable to 50.
+
+## Addressing "Could not extract functions" Error
+
+1.  **Persistent Error:** The retry logic was not effective in overcoming the "Could not extract functions" error, as it was a persistent issue.
+2.  **Alternative Library:** To address this, I switched from `ytdl-core` to `youtube-dl-exec`, a wrapper around the command-line `youtube-dl` tool, to see if it was more resilient.
+
+    *   I updated the `download_test.js` file to use `youtube-dl-exec` instead of `ytdl-core`.
+    *   I modified the `download_test_launcher.ps1` script to install youtube-dl-exec.
+3.  **Encountering Module Errors**:
+    * There was an issue with the file types that was throwing an error which was solved by renaming the .js file to .cjs
+4.  **Final Success**
+    * After making the above changes and doing some more problem solving, I was able to run the script correctly.
+
+## Key Self-Healing Techniques
+
+*   **Retry Logic:** Implemented in PowerShell to handle transient errors and increase the likelihood of successful downloads.
+*   **Error Handling:** Used `try...catch` blocks to gracefully handle errors and prevent the script from crashing.
+*   **Limiter:** Setting a max number of retries to ensure the script doesn't infinitely loop.
+*   **Dependency Management:** The script ensures that the necessary dependencies (Node.js packages) are installed before attempting the download.
+*   **Alternative Libraries:** The change from ytdl-core to youtube-dl-exec demonstrates how to try a different approach if the primary method fails.
+
+## Replication Notes
+
+*   Ensure that Node.js and npm are installed on your system.
+*   Create the `download_test.js` and `download_test_launcher.ps1` files with the content described above.
+*   Run the PowerShell script with the `-ExecutionPolicy Bypass` parameter.
+*   Monitor the output of the script to identify any errors or issues.
+
+This file should provide a good overview of the process we followed to create the self-healing script. Remember that the specific steps might vary depending on the nature of the errors encountered.

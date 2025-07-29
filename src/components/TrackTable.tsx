@@ -29,7 +29,7 @@ interface TrackTableProps {
   onDownloadSelected: (tracks: TrackInfo[]) => void;
 }
 
-export const TrackTable = ({ tracks, onTracksChange, albumName }: TrackTableProps) => {
+export const TrackTable = ({ tracks, onTracksChange, albumName, onDownloadTrack, onDownloadSelected }: TrackTableProps) => {
   const toggleTrackSelection = (trackId: string) => {
     const updatedTracks = tracks.map(track =>
       track.id === trackId ? { ...track, selected: !track.selected } : track

@@ -55,6 +55,7 @@
     "tailwind-merge": "^2.3.0",
     "tailwindcss-animate": "^1.0.7",
     "typescript-eslint": "^8.38.0",
+    "youtube-dl-exec": "^3.0.22",
     "ytdl-core": "^4.11.5",
     "zod": "^3.22.4"
   },

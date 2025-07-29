@@ -1,6 +1,10 @@
 # Install dependencies
 npm install
 
+# Update ytdl-core to the latest version
+Write-Host "Checking for ytdl-core updates..."
+npm install ytdl-core@latest
+
 # Build the frontend
 Write-Host "Building frontend..."
 npm run build
