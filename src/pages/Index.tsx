@@ -47,7 +47,7 @@ const Index = () => {
       return;
     }
 
-    let prompt = `Find YouTube URLs for all tracks from the album \"${album}\" by ${artist}`;
+    let prompt = `Find YouTube URLs for all tracks from the album "${album}" by ${artist}`;
     if (year) prompt += ` released in ${year}`;
     
     prompt += `\n\nPlease provide accurate, high-quality YouTube links for each track.`;
@@ -72,7 +72,7 @@ const Index = () => {
         throw new Error(data.error || 'Search failed');
       }
       
-      const formattedTracks: TrackInfo[] = data.tracks.map((track: any) => ({
+      const formattedTracks: TrackInfo[] = data.tracks.map((track: { id: string; name: string; trackNumber?: number; artist?: string; duration?: number; }) => ({
         id: track.id,
         name: track.name,
         trackNumber: track.trackNumber,
@@ -89,8 +89,8 @@ const Index = () => {
         year: year ? parseInt(year) : undefined
       });
       
-      toast.success(`Found ${data.totalTracks} tracks from \"${data.release.title}\"!`);
-    } catch (error: any) {
+      toast.success(`Found ${data.totalTracks} tracks from "${data.release.title}"!`);
+    } catch (error: Error) {
       console.error('Error searching MusicBrainz:', error);
       toast.error(error.message || "Failed to find track information");
     } finally {
@@ -121,12 +121,63 @@ const Index = () => {
       );
       setTracks(updatedTracks);
       toast.success(`Found YouTube URLs for your tracks!`);
-    } catch (error: any) {
+    } catch (error: Error) {
       console.error('Error finding YouTube URLs:', error);
       toast.error(error.message || "Failed to get AI response");
     }
     finally {
       setFindingUrls(false);
+    }
+  };
+
+  const handleDownloadTrack = async (track: TrackInfo) => {
+    if (!track.youtubeUrl) {
+      toast.error(`No YouTube URL found for ${track.name}`);
+      return;
+    }
+
+    toast.info(`Starting download for ${track.name}...`);
+
+    try {
+      const response = await fetch('http://localhost:3001/api/download', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: track.youtubeUrl, name: track.name }),
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = `${track.name}.mp3`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+        toast.success(`Downloaded ${track.name}`);
+      } else {
+        const errorData = await response.json();
+        toast.error(`Failed to download ${track.name}: ${errorData.error || response.statusText}`);
+      }
+    } catch (error: Error) {
+      console.error('Error downloading track:', error);
+      toast.error(error.message || "Failed to download track");
+    }
+  };
+
+  const handleDownloadSelectedTracks = async (selectedTracks: TrackInfo[]) => {
+    if (selectedTracks.length === 0) {
+      toast.error("No tracks selected for download.");
+      return;
+    }
+
+    toast.info(`Attempting to download ${selectedTracks.length} selected tracks...`);
+
+    for (const track of selectedTracks) {
+      await handleDownloadTrack(track); // Download tracks one by one
     }
   };
 
@@ -167,7 +218,7 @@ const Index = () => {
         }
       }
       setManualUrls(''); // Clear input
-    } catch (error: any) {
+    } catch (error: Error) {
       console.error('Error processing manual URLs:', error);
       toast.error(error.message || "Failed to process URLs");
     } finally {
@@ -343,6 +394,8 @@ const Index = () => {
                 tracks={tracks}
                 onTracksChange={setTracks}
                 albumName={album}
+                onDownloadTrack={handleDownloadTrack}
+                onDownloadSelected={handleDownloadSelectedTracks}
               />
             </CardContent>
           </Card>

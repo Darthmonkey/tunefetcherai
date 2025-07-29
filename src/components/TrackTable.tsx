@@ -25,6 +25,8 @@ interface TrackTableProps {
   tracks: TrackInfo[];
   onTracksChange: (tracks: TrackInfo[]) => void;
   albumName: string;
+  onDownloadTrack: (track: TrackInfo) => void;
+  onDownloadSelected: (tracks: TrackInfo[]) => void;
 }
 
 export const TrackTable = ({ tracks, onTracksChange, albumName }: TrackTableProps) => {
@@ -118,10 +120,7 @@ export const TrackTable = ({ tracks, onTracksChange, albumName }: TrackTableProp
                     size="sm"
                     variant="secondary"
                     disabled={!track.youtubeUrl}
-                    onClick={() => {
-                      // Individual track download logic would go here
-                      console.log(`Downloading ${track.name}`);
-                    }}
+                    onClick={() => onDownloadTrack(track)}
                   >
                     <Download className="h-3 w-3" />
                   </Button>
@@ -130,6 +129,13 @@ export const TrackTable = ({ tracks, onTracksChange, albumName }: TrackTableProp
             ))}
           </TableBody>
         </Table>
+        {selectedCount > 0 && (
+          <div className="mt-4 text-right">
+            <Button onClick={() => onDownloadSelected(tracks.filter(track => track.selected))}>
+              Download Selected ({selectedCount})
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
