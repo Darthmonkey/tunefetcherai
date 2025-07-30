@@ -213,8 +213,19 @@ const Index = () => {
     
     try {
       for (const url of urls) {
-        const trackName = `Manual Download ${Date.now()}`;
-        const response = await fetch('http://localhost:3001/api/download', {
+        const getYouTubeVideoId = (url: string) => {
+          const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+          const match = url.match(regExp);
+          if (match && match[2].length === 11) {
+            return match[2];
+          }
+          return null;
+        };
+
+        const videoId = getYouTubeVideoId(url);
+        const trackName = videoId || `Manual Download ${Date.now()}`; // Fallback if ID not found
+
+        const response = await fetch('http://localhost:3001/api/download-single', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
