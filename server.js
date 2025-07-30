@@ -107,41 +107,75 @@ app.get('/api/musicbrainz-albums-by-artist', (req, res) => {
         return;
     }
 
-    const mbSearchUrl = `https://musicbrainz.org/ws/2/release-group/?query=artist:${encodeURIComponent(artist)} AND primarytype:album&fmt=json`;
-    console.log(`[Server] MusicBrainz Album Search URL: ${mbSearchUrl}`);
+    // Step 1: Search for the artist to get their MusicBrainz ID
+    const artistSearchUrl = `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(artist)}&fmt=json`;
+    console.log(`[Server] MusicBrainz Artist Search URL: ${artistSearchUrl}`);
 
-    https.get(mbSearchUrl, {
+    https.get(artistSearchUrl, {
         headers: {
             'User-Agent': 'TuneFetcherAI/1.0 ( your-email@example.com )'
         }
-    }, (searchRes) => {
-        let searchData = '';
-        searchRes.on('data', (chunk) => { searchData += chunk; });
-        searchRes.on('end', () => {
-            console.log(`[Server] MusicBrainz Album Search Response Status: ${searchRes.statusCode}`);
+    }, (artistSearchRes) => {
+        let artistSearchData = '';
+        artistSearchRes.on('data', (chunk) => { artistSearchData += chunk; });
+        artistSearchRes.on('end', () => {
+            console.log(`[Server] MusicBrainz Artist Search Response Status: ${artistSearchRes.statusCode}`);
             try {
-                const searchMbData = JSON.parse(searchData);
-                if (searchMbData['release-groups'] && searchMbData['release-groups'].length > 0) {
-                    const albums = searchMbData['release-groups'].map((rg) => ({
-                        id: rg.id,
-                        title: rg.title,
-                        'first-release-date': rg['first-release-date'],
-                        'artist-credit': rg['artist-credit']
-                    }));
-                    res.json({ success: true, albums });
-                    console.log(`[Server] Found ${albums.length} albums for artist: ${artist}.`);
+                const artistMbData = JSON.parse(artistSearchData);
+                if (artistMbData.artists && artistMbData.artists.length > 0) {
+                    const artistId = artistMbData.artists[0].id; // Take the first result
+                    console.log(`[Server] Found artist ID: ${artistId} (${artistMbData.artists[0].name})`);
+
+                    // Step 2: Search for release-groups (albums) by artist ID
+                    const mbSearchUrl = `https://musicbrainz.org/ws/2/release-group/?artist=${artistId}&fmt=json&type=album`;
+                    console.log(`[Server] MusicBrainz Album Search by Artist ID URL: ${mbSearchUrl}`);
+
+                    https.get(mbSearchUrl, {
+                        headers: {
+                            'User-Agent': 'TuneFetcherAI/1.0 ( your-email@example.com )'
+                        }
+                    }, (albumSearchRes) => {
+                        let albumSearchData = '';
+                        albumSearchRes.on('data', (chunk) => { albumSearchData += chunk; });
+                        albumSearchRes.on('end', () => {
+                            console.log(`[Server] MusicBrainz Album Search by Artist ID Response Status: ${albumSearchRes.statusCode}`);
+                            try {
+                                const albumMbData = JSON.parse(albumSearchData);
+                                if (albumMbData['release-groups'] && albumMbData['release-groups'].length > 0) {
+                                    const albums = albumMbData['release-groups'].map((rg) => ({
+                                        id: rg.id,
+                                        title: rg.title,
+                                        'first-release-date': rg['first-release-date'],
+                                        'artist-credit': rg['artist-credit']
+                                    }));
+                                    res.json({ success: true, albums });
+                                    console.log(`[Server] Found ${albums.length} albums for artist ID: ${artistId}.`);
+                                } else {
+                                    res.status(404).json({ success: false, error: 'No albums found for this artist.' });
+                                    console.warn(`[Server] No albums found for artist ID: ${artistId}.`);
+                                }
+                            } catch (parseError) {
+                                console.error('[Server] Error parsing MusicBrainz album search data:', parseError);
+                                res.status(500).json({ success: false, error: 'Failed to parse MusicBrainz album search data' });
+                            }
+                        });
+                    }).on('error', (e) => {
+                        console.error('[Server] Error fetching MusicBrainz album search by Artist ID:', e);
+                        res.status(500).json({ success: false, error: 'Failed to fetch MusicBrainz album search by Artist ID' });
+                    });
+
                 } else {
-                    res.status(404).json({ success: false, error: 'No albums found for this artist.' });
-                    console.warn(`[Server] No albums found for artist: ${artist}.`);
+                    res.status(404).json({ success: false, error: 'Artist not found on MusicBrainz.' });
+                    console.warn(`[Server] Artist not found on MusicBrainz: ${artist}.`);
                 }
             } catch (parseError) {
-                console.error('[Server] Error parsing MusicBrainz album search data:', parseError);
-                res.status(500).json({ success: false, error: 'Failed to parse MusicBrainz album search data' });
+                console.error('[Server] Error parsing MusicBrainz artist search data:', parseError);
+                res.status(500).json({ success: false, error: 'Failed to parse MusicBrainz artist search data' });
             }
         });
     }).on('error', (e) => {
-        console.error('[Server] Error fetching MusicBrainz album search:', e);
-        res.status(500).json({ success: false, error: 'Failed to fetch MusicBrainz album search' });
+        console.error('[Server] Error fetching MusicBrainz artist search:', e);
+        res.status(500).json({ success: false, error: 'Failed to fetch MusicBrainz artist search' });
     });
 });
 
@@ -314,23 +348,26 @@ app.post('/api/download-multiple', async (req, res) => {
                 output: outputPath,
             });
             console.log(`[Server] Successfully downloaded ${trackName}`);
-            return { success: true, path: outputPath };
+            return { success: true, path: outputPath, trackName };
         } catch (error) {
             console.error(`[Server] Download failed for ${trackName}:`, error);
             if (retryCount < 2) {
                 await new Promise(resolve => setTimeout(resolve, 5000));
                 return await downloadWithRetry(url, outputPath, retryCount + 1, trackName);
             }
-            return { success: false, error: `Failed to download ${trackName}` };
+            return { success: false, trackName, error: error.message };
         }
     }
 
     try {
         const results = await Promise.all(downloadPromises);
         const successfulDownloads = results.filter(r => r.success).map(r => r.path);
+        const failedDownloads = results.filter(r => !r.success);
 
         if (successfulDownloads.length === 0) {
-            throw new Error('All downloads failed');
+            res.status(500).json({ error: 'All downloads failed', failedTracks: failedDownloads.map(f => f.trackName) });
+            rimraf.rimraf(tempDir);
+            return;
         }
 
         const zipPath = path.join(__dirname, 'temp', `${albumName}.zip`);

@@ -21,6 +21,7 @@ interface TrackInfo {
   trackNumber?: number;
   artist?: string;
   duration?: number;
+  downloadStatus?: 'pending' | 'success' | 'failed';
 }
 
 interface TrackTableProps {
@@ -99,7 +100,7 @@ export const TrackTable = ({ tracks, onTracksChange, albumName, onDownloadTrack,
           </TableHeader>
           <TableBody>
             {tracks.map((track) => (
-              <TableRow key={track.id}>
+              <TableRow key={track.id} className={track.downloadStatus === 'failed' ? 'bg-red-100' : ''}>
                 <TableCell>
                   <Checkbox
                     checked={track.selected}

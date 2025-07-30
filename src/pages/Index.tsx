@@ -8,6 +8,7 @@ import { TrackTable } from "@/components/TrackTable";
 import { toast } from "sonner";
 import { Loader2, Music, Download, Search, Sparkles } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 interface TrackInfo {
   id: string;
@@ -17,6 +18,7 @@ interface TrackInfo {
   trackNumber?: number;
   artist?: string;
   duration?: number;
+  downloadStatus?: 'pending' | 'success' | 'failed';
 }
 
 const Index = () => {
@@ -24,6 +26,8 @@ const Index = () => {
   const [albums, setAlbums] = useState<any[]>([]);
   const [searchingAlbums, setSearchingAlbums] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<any | null>(null);
+
+  const [sortYearOrder, setSortYearOrder] = useState<'asc' | 'desc' | null>(null);
 
   const [manualUrls, setManualUrls] = useState("");
   const [tracks, setTracks] = useState<TrackInfo[]>([]);
@@ -67,7 +71,7 @@ const Index = () => {
     setTracks([]); // Clear existing tracks
 
     // Automatically trigger track info generation and YouTube URL finding
-    await generateTrackInfo(album.title, album['artist-credit'][0].name, album['first-release-date'] ? new Date(album['first-release-date']).getFullYear().toString() : '');
+    await generateTrackInfo(album.title, artistSearchQuery, album['first-release-date'] ? new Date(album['first-release-date']).getFullYear().toString() : '');
   };
 
   const generateTrackInfo = async (albumTitle: string, artistName: string, year?: string) => {
@@ -169,8 +173,16 @@ const Index = () => {
     }
   };
 
-  const handleDownloadMultiple = async (tracks: TrackInfo[], albumName: string) => {
-    toast.info(`Starting download for ${tracks.length} tracks...`);
+  const handleDownloadMultiple = async (tracksToDownload: TrackInfo[], albumName: string) => {
+    toast.info(`Starting download for ${tracksToDownload.length} tracks...`);
+
+    // Set initial download status to pending for selected tracks
+    const updatedTracks = tracks.map(track => 
+      tracksToDownload.some(t => t.id === track.id) 
+        ? { ...track, downloadStatus: 'pending' } 
+        : track
+    );
+    setTracks(updatedTracks);
 
     try {
       const response = await fetch('http://localhost:3001/api/download-multiple', {
@@ -178,7 +190,7 @@ const Index = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ tracks, albumName }),
+        body: JSON.stringify({ tracks: tracksToDownload, albumName }),
       });
 
       if (response.ok) {
@@ -192,13 +204,50 @@ const Index = () => {
         a.remove();
         window.URL.revokeObjectURL(downloadUrl);
         toast.success(`Downloaded ${albumName}.zip`);
+
+        // Update status for successful downloads
+        const finalTracks = tracks.map(track => 
+          tracksToDownload.some(t => t.id === track.id) 
+            ? { ...track, downloadStatus: 'success' } 
+            : track
+        );
+        setTracks(finalTracks);
+
       } else {
         const errorData = await response.json();
-        toast.error(`Failed to download tracks: ${errorData.error || response.statusText}`);
+        if (errorData.failedTracks && errorData.failedTracks.length > 0) {
+          toast.error(`Failed to download some tracks: ${errorData.failedTracks.map((t: any) => t.trackName).join(', ')}`);
+
+          // Update status for failed downloads
+          const failedTrackNames = errorData.failedTracks.map((t: any) => t.trackName);
+          const finalTracks = tracks.map(track => 
+            failedTrackNames.includes(track.name) 
+              ? { ...track, downloadStatus: 'failed' } 
+              : track
+          );
+          setTracks(finalTracks);
+
+        } else {
+          toast.error(`Failed to download tracks: ${errorData.error || response.statusText}`);
+          // If all failed, mark all selected as failed
+          const finalTracks = tracks.map(track => 
+            tracksToDownload.some(t => t.id === track.id) 
+              ? { ...track, downloadStatus: 'failed' } 
+              : track
+          );
+          setTracks(finalTracks);
+        }
       }
     } catch (error: any) {
       console.error('Error downloading tracks:', error);
       toast.error(error.message || "Failed to download tracks");
+      // Mark all selected as failed on network error
+      const finalTracks = tracks.map(track => 
+        tracksToDownload.some(t => t.id === track.id) 
+          ? { ...track, downloadStatus: 'failed' } 
+          : track
+      );
+      setTracks(finalTracks);
     }
   };
 
@@ -325,21 +374,48 @@ const Index = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {albums.map((album) => (
-                  <Button
-                    key={album.id}
-                    variant="outline"
-                    className="flex flex-col items-start h-auto p-4 text-left"
-                    onClick={() => handleAlbumSelect(album)}
-                  >
-                    <span className="font-semibold">{album.title}</span>
-                    <span className="text-sm text-muted-foreground">
-                      {album['artist-credit']?.[0]?.artist?.name || 'Unknown Artist'}
-                      {album['first-release-date'] && ` (${new Date(album['first-release-date']).getFullYear()})`}
-                    </span>
-                  </Button>
-                ))}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Album Title</TableHead>
+                      <TableHead>Artist</TableHead>
+                      <TableHead 
+                        className="cursor-pointer"
+                        onClick={() => setSortYearOrder(prev => {
+                          if (prev === 'asc') return 'desc';
+                          if (prev === 'desc') return null;
+                          return 'asc';
+                        })}
+                      >
+                        Year {sortYearOrder === 'asc' && '↑'} {sortYearOrder === 'desc' && '↓'}
+                      </TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {albums
+                      .sort((a, b) => {
+                        const yearA = a['first-release-date'] ? new Date(a['first-release-date']).getFullYear() : 0;
+                        const yearB = b['first-release-date'] ? new Date(b['first-release-date']).getFullYear() : 0;
+                        if (sortYearOrder === 'asc') return yearA - yearB;
+                        if (sortYearOrder === 'desc') return yearB - yearA;
+                        return 0;
+                      })
+                      .map((album) => (
+                        <TableRow key={album.id}>
+                          <TableCell className="font-medium">{album.title}</TableCell>
+                          <TableCell>{artistSearchQuery}</TableCell>
+                          <TableCell>{album['first-release-date'] ? new Date(album['first-release-date']).getFullYear() : 'N/A'}</TableCell>
+                          <TableCell>
+                            <Button onClick={() => handleAlbumSelect(album)} size="sm">
+                              Select
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
               </div>
             </CardContent>
           </Card>
@@ -355,6 +431,12 @@ const Index = () => {
             <CardDescription>
                 Tracks for this album are being fetched and YouTube URLs are being found automatically.
               </CardDescription>
+              <p className="text-sm text-muted-foreground mt-2">
+                Note: Not all tracks may have a corresponding YouTube URL available.
+              </p>
+              <p className="text-sm text-muted-foreground mt-2">
+                Some tracks may not be downloadable due to content restrictions (e.g., explicit lyrics).
+              </p>
           </CardHeader>
             <CardContent>
               {(searchingTracks || findingUrls) ? (
