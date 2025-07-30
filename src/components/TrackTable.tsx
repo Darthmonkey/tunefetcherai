@@ -9,7 +9,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ExternalLink, Download } from "lucide-react";
+import { ExternalLink, Download, Loader } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 
 interface TrackInfo {
   id: string;
@@ -26,10 +28,29 @@ interface TrackTableProps {
   onTracksChange: (tracks: TrackInfo[]) => void;
   albumName: string;
   onDownloadTrack: (track: TrackInfo) => void;
-  onDownloadSelected: (tracks: TrackInfo[]) => void;
+  onDownloadMultiple: (tracks: TrackInfo[], albumName: string) => Promise<void>;
 }
 
-export const TrackTable = ({ tracks, onTracksChange, albumName, onDownloadTrack, onDownloadSelected }: TrackTableProps) => {
+export const TrackTable = ({ tracks, onTracksChange, albumName, onDownloadTrack, onDownloadMultiple }: TrackTableProps) => {
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadSelected = async () => {
+    const selectedTracks = tracks.filter(track => track.selected);
+    if (selectedTracks.length === 0) {
+      toast.error("No tracks selected for download.");
+      return;
+    }
+
+    setIsDownloading(true);
+    try {
+      await onDownloadMultiple(selectedTracks, albumName);
+    } catch (error) {
+      // Error is handled in the parent component
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const toggleTrackSelection = (trackId: string) => {
     const updatedTracks = tracks.map(track =>
       track.id === trackId ? { ...track, selected: !track.selected } : track
@@ -85,18 +106,18 @@ export const TrackTable = ({ tracks, onTracksChange, albumName, onDownloadTrack,
                     onCheckedChange={() => toggleTrackSelection(track.id)}
                   />
                 </TableCell>
-              <TableCell className="font-medium">
-                {track.trackNumber && <span className="text-muted-foreground mr-2">{track.trackNumber}.</span>}
-                {track.name}
-                {track.artist && track.artist !== albumName && (
-                  <div className="text-sm text-muted-foreground">by {track.artist}</div>
-                )}
-                {track.duration && (
-                  <div className="text-xs text-muted-foreground">
-                    {Math.floor(track.duration / 60)}:{(track.duration % 60).toString().padStart(2, '0')}
-                  </div>
-                )}
-              </TableCell>
+                <TableCell className="font-medium">
+                  {track.trackNumber && <span className="text-muted-foreground mr-2">{track.trackNumber}.</span>}
+                  {track.name}
+                  {track.artist && track.artist !== albumName && (
+                    <div className="text-sm text-muted-foreground">by {track.artist}</div>
+                  )}
+                  {track.duration && (
+                    <div className="text-xs text-muted-foreground">
+                      {Math.floor(track.duration / 60)}:{(track.duration % 60).toString().padStart(2, '0')}
+                    </div>
+                  )}
+                </TableCell>
                 <TableCell>
                   {track.youtubeUrl ? (
                     <div className="flex items-center gap-2">
@@ -119,7 +140,7 @@ export const TrackTable = ({ tracks, onTracksChange, albumName, onDownloadTrack,
                   <Button
                     size="sm"
                     variant="secondary"
-                    disabled={!track.youtubeUrl}
+                    disabled={!track.youtubeUrl || isDownloading}
                     onClick={() => onDownloadTrack(track)}
                   >
                     <Download className="h-3 w-3" />
@@ -131,8 +152,12 @@ export const TrackTable = ({ tracks, onTracksChange, albumName, onDownloadTrack,
         </Table>
         {selectedCount > 0 && (
           <div className="mt-4 text-right">
-            <Button onClick={() => onDownloadSelected(tracks.filter(track => track.selected))}>
-              Download Selected ({selectedCount})
+            <Button onClick={handleDownloadSelected} disabled={isDownloading}>
+              {isDownloading ? (
+                <><Loader className="h-4 w-4 animate-spin mr-2" /> Downloading...</>
+              ) : (
+                `Download Selected (${selectedCount})`
+              )}
             </Button>
           </div>
         )}

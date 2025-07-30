@@ -6,6 +6,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { youtubeDl } from 'youtube-dl-exec';
 import fs from 'fs';
+import archiver from 'archiver';
+import * as rimraf from 'rimraf';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -182,7 +184,7 @@ app.get('/api/musicbrainz-search', (req, res) => {
 
 
 // Download API
-app.post('/api/download', async (req, res) => {
+app.post('/api/download-single', async (req, res) => {
     const { url: videoUrl, name: trackName } = req.body;
     console.log(`[Server] Download request for: ${trackName} (${videoUrl})`);
 
@@ -193,15 +195,16 @@ app.post('/api/download', async (req, res) => {
 
     const maxRetries = 3;
     const retryDelaySeconds = 5;
-    const outputPath = path.join(__dirname, 'temp', `${trackName}.mp3`);
+    const tempDir = path.join(__dirname, 'temp', `download_${Date.now()}`);
+    const outputPath = path.join(tempDir, `${trackName}.mp3`);
 
-    fs.mkdirSync(path.join(__dirname, 'temp'), { recursive: true });
+    fs.mkdirSync(tempDir, { recursive: true });
 
     async function downloadWithRetry(url, outputPath, retryCount) {
         try {
             console.log(`[Server] Attempting download (Attempt ${retryCount + 1}/${maxRetries}) from: ${url}`);
 
-            const commandResult = await youtubeDl(url, {
+            await youtubeDl(url, {
                 extractAudio: true,
                 audioFormat: 'mp3',
                 audioQuality: '0',
@@ -209,28 +212,11 @@ app.post('/api/download', async (req, res) => {
             });
 
             console.log(`[Server] Successfully downloaded audio to: ${outputPath}`);
-            res.download(outputPath, `${trackName}.mp3`, (err) => {
-                if (err) {
-                    console.error('[Server] Error sending file:', err);
-                    res.status(500).json({ error: 'Failed to send downloaded file' });
-                } else {
-                    console.log(`[Server] Successfully sent ${trackName}.mp3`);
-                }
-
-              fs.unlink(outputPath, (unlinkErr) => {
-                if (unlinkErr) {
-                  console.error(`[Server] Error deleting temporary file ${outputPath}:`, unlinkErr);
-                } else {
-                  console.log(`[Server] Successfully deleted temporary file ${outputPath}`);
-                }
-              });
-            });
-
             return true;
 
         } catch (error) {
             console.error(`[Server] Download failed for ${url} (Attempt ${retryCount + 1}/${maxRetries}):`, error);
-            if (retryCount < maxRetries) {
+            if (retryCount < maxRetries - 1) {
                 console.log(`[Server] Retrying in ${retryDelaySeconds} seconds...`);
                 await new Promise(resolve => setTimeout(resolve, retryDelaySeconds * 1000));
                 return await downloadWithRetry(url, outputPath, retryCount + 1);
@@ -243,8 +229,93 @@ app.post('/api/download', async (req, res) => {
 
     const downloadSuccessful = await downloadWithRetry(videoUrl, outputPath, 0);
 
-    if (!downloadSuccessful) {
+    if (downloadSuccessful) {
+        res.download(outputPath, `${trackName}.mp3`, (err) => {
+            if (err) {
+                console.error('[Server] Error sending file:', err);
+            }
+            rimraf.rimraf(tempDir);
+        });
+    } else {
         res.status(500).json({ error: `Failed to download track after multiple retries.` });
+        rimraf(tempDir);
+    }
+});
+
+app.post('/api/download-multiple', async (req, res) => {
+    const { tracks, albumName } = req.body;
+    console.log(`[Server] Multi-download request for album: ${albumName}`);
+
+    if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
+        return res.status(400).json({ error: 'Tracks array is required' });
+    }
+
+    const tempDir = path.join(__dirname, 'temp', `download_${Date.now()}`);
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    const downloadPromises = tracks.map(track => {
+        const outputPath = path.join(tempDir, `${track.name}.mp3`);
+        return downloadWithRetry(track.youtubeUrl, outputPath, 0, track.name);
+    });
+
+    async function downloadWithRetry(url, outputPath, retryCount, trackName) {
+        try {
+            console.log(`[Server] Attempting download for ${trackName} (Attempt ${retryCount + 1})`);
+            await youtubeDl(url, {
+                extractAudio: true,
+                audioFormat: 'mp3',
+                audioQuality: '0',
+                output: outputPath,
+            });
+            console.log(`[Server] Successfully downloaded ${trackName}`);
+            return { success: true, path: outputPath };
+        } catch (error) {
+            console.error(`[Server] Download failed for ${trackName}:`, error);
+            if (retryCount < 2) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                return await downloadWithRetry(url, outputPath, retryCount + 1, trackName);
+            }
+            return { success: false, error: `Failed to download ${trackName}` };
+        }
+    }
+
+    try {
+        const results = await Promise.all(downloadPromises);
+        const successfulDownloads = results.filter(r => r.success).map(r => r.path);
+
+        if (successfulDownloads.length === 0) {
+            throw new Error('All downloads failed');
+        }
+
+        const zipPath = path.join(__dirname, 'temp', `${albumName}.zip`);
+        const output = fs.createWriteStream(zipPath);
+        const archive = archiver('zip', { zlib: { level: 9 } });
+
+        output.on('close', () => {
+            console.log(`[Server] Zip archive created: ${zipPath}`);
+            res.download(zipPath, `${albumName}.zip`, (err) => {
+                if (err) {
+                    console.error('[Server] Error sending zip file:', err);
+                }
+                rimraf.rimraf(tempDir);
+                fs.unlink(zipPath, () => {});
+            });
+        });
+
+        archive.on('error', (err) => {
+            throw err;
+        });
+
+        archive.pipe(output);
+        successfulDownloads.forEach(filePath => {
+            archive.file(filePath, { name: path.basename(filePath) });
+        });
+        archive.finalize();
+
+    } catch (error) {
+        console.error('[Server] Error during multi-download:', error);
+        res.status(500).json({ error: 'Failed to process downloads' });
+        rimraf(tempDir);
     }
 });
 

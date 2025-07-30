@@ -139,7 +139,7 @@ const Index = () => {
     toast.info(`Starting download for ${track.name}...`);
 
     try {
-      const response = await fetch('http://localhost:3001/api/download', {
+      const response = await fetch('http://localhost:3001/api/download-single', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -162,22 +162,42 @@ const Index = () => {
         const errorData = await response.json();
         toast.error(`Failed to download ${track.name}: ${errorData.error || response.statusText}`);
       }
-    } catch (error: Error) {
+    } catch (error: any) {
       console.error('Error downloading track:', error);
       toast.error(error.message || "Failed to download track");
     }
   };
 
-  const handleDownloadSelectedTracks = async (selectedTracks: TrackInfo[]) => {
-    if (selectedTracks.length === 0) {
-      toast.error("No tracks selected for download.");
-      return;
-    }
+  const handleDownloadMultiple = async (tracks: TrackInfo[], albumName: string) => {
+    toast.info(`Starting download for ${tracks.length} tracks...`);
 
-    toast.info(`Attempting to download ${selectedTracks.length} selected tracks...`);
+    try {
+      const response = await fetch('http://localhost:3001/api/download-multiple', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ tracks, albumName }),
+      });
 
-    for (const track of selectedTracks) {
-      await handleDownloadTrack(track); // Download tracks one by one
+      if (response.ok) {
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = `${albumName}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+        toast.success(`Downloaded ${albumName}.zip`);
+      } else {
+        const errorData = await response.json();
+        toast.error(`Failed to download tracks: ${errorData.error || response.statusText}`);
+      }
+    } catch (error: any) {
+      console.error('Error downloading tracks:', error);
+      toast.error(error.message || "Failed to download tracks");
     }
   };
 
@@ -395,7 +415,7 @@ const Index = () => {
                 onTracksChange={setTracks}
                 albumName={album}
                 onDownloadTrack={handleDownloadTrack}
-                onDownloadSelected={handleDownloadSelectedTracks}
+                onDownloadMultiple={handleDownloadMultiple}
               />
             </CardContent>
           </Card>
