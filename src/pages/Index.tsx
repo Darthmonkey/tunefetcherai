@@ -57,6 +57,10 @@ const Index = () => {
       }
 
       setAlbums(data.albums);
+      // Update artistSearchQuery with the canonical artist name from MusicBrainz
+      if (data.albums.length > 0 && data.albums[0]['artist-credit'] && data.albums[0]['artist-credit'][0] && data.albums[0]['artist-credit'][0].artist) {
+        setArtistSearchQuery(data.albums[0]['artist-credit'][0].artist.name);
+      }
       toast.success(`Found ${data.albums.length} albums for "${artistSearchQuery}"!`);
     } catch (error: Error) {
       console.error('Error searching albums:', error);
@@ -194,49 +198,37 @@ const Index = () => {
       });
 
       if (response.ok) {
-        const blob = await response.blob();
-        const downloadUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = `${albumName}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(downloadUrl);
-        toast.success(`Downloaded ${albumName}.zip`);
+        const data = await response.json();
+        if (data.zipUrl) {
+          window.open(data.zipUrl, '_blank');
+          toast.success(`Downloaded ${albumName}.zip`);
+        } else {
+          toast.success(`Downloads completed.`);
+        }
 
         // Update status for successful downloads
+        const failedTrackIds = data.failedTracks ? data.failedTracks.map((t: any) => t.id) : [];
         const finalTracks = tracks.map(track => 
           tracksToDownload.some(t => t.id === track.id) 
-            ? { ...track, downloadStatus: 'success' } 
+            ? { ...track, downloadStatus: failedTrackIds.includes(track.id) ? 'failed' : 'success' } 
             : track
         );
         setTracks(finalTracks);
 
+        if (failedTrackIds.length > 0) {
+          toast.error(`Failed to download some tracks: ${data.failedTracks.map((t: any) => t.trackName).join(', ')}`);
+        }
+
       } else {
         const errorData = await response.json();
-        if (errorData.failedTracks && errorData.failedTracks.length > 0) {
-          toast.error(`Failed to download some tracks: ${errorData.failedTracks.map((t: any) => t.trackName).join(', ')}`);
-
-          // Update status for failed downloads
-          const failedTrackNames = errorData.failedTracks.map((t: any) => t.trackName);
-          const finalTracks = tracks.map(track => 
-            failedTrackNames.includes(track.name) 
-              ? { ...track, downloadStatus: 'failed' } 
-              : track
-          );
-          setTracks(finalTracks);
-
-        } else {
-          toast.error(`Failed to download tracks: ${errorData.error || response.statusText}`);
-          // If all failed, mark all selected as failed
-          const finalTracks = tracks.map(track => 
-            tracksToDownload.some(t => t.id === track.id) 
-              ? { ...track, downloadStatus: 'failed' } 
-              : track
-          );
-          setTracks(finalTracks);
-        }
+        toast.error(`Failed to download tracks: ${errorData.error || response.statusText}`);
+        // If all failed, mark all selected as failed
+        const finalTracks = tracks.map(track => 
+          tracksToDownload.some(t => t.id === track.id) 
+            ? { ...track, downloadStatus: 'failed' } 
+            : track
+        );
+        setTracks(finalTracks);
       }
     } catch (error: any) {
       console.error('Error downloading tracks:', error);
@@ -405,7 +397,7 @@ const Index = () => {
                       .map((album) => (
                         <TableRow key={album.id}>
                           <TableCell className="font-medium">{album.title}</TableCell>
-                          <TableCell>{artistSearchQuery}</TableCell>
+                          <TableCell>{album.artist}</TableCell>
                           <TableCell>{album['first-release-date'] ? new Date(album['first-release-date']).getFullYear() : 'N/A'}</TableCell>
                           <TableCell>
                             <Button onClick={() => handleAlbumSelect(album)} size="sm">

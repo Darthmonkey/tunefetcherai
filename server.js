@@ -146,6 +146,7 @@ app.get('/api/musicbrainz-albums-by-artist', (req, res) => {
                                         id: rg.id,
                                         title: rg.title,
                                         'first-release-date': rg['first-release-date'],
+                                        artist: artistMbData.artists[0].name, // Explicitly add the resolved artist name
                                         'artist-credit': rg['artist-credit']
                                     }));
                                     res.json({ success: true, albums });
@@ -335,10 +336,10 @@ app.post('/api/download-multiple', async (req, res) => {
 
     const downloadPromises = tracks.map(track => {
         const outputPath = path.join(tempDir, `${track.name}.mp3`);
-        return downloadWithRetry(track.youtubeUrl, outputPath, 0, track.name);
+        return downloadWithRetry(track.youtubeUrl, outputPath, 0, track.name, track.id);
     });
 
-    async function downloadWithRetry(url, outputPath, retryCount, trackName) {
+    async function downloadWithRetry(url, outputPath, retryCount, trackName, trackId) {
         try {
             console.log(`[Server] Attempting download for ${trackName} (Attempt ${retryCount + 1})`);
             await youtubeDl(url, {
@@ -348,24 +349,24 @@ app.post('/api/download-multiple', async (req, res) => {
                 output: outputPath,
             });
             console.log(`[Server] Successfully downloaded ${trackName}`);
-            return { success: true, path: outputPath, trackName };
+            return { success: true, path: outputPath, trackName, trackId };
         } catch (error) {
             console.error(`[Server] Download failed for ${trackName}:`, error);
             if (retryCount < 2) {
                 await new Promise(resolve => setTimeout(resolve, 5000));
-                return await downloadWithRetry(url, outputPath, retryCount + 1, trackName);
+                return await downloadWithRetry(url, outputPath, retryCount + 1, trackName, trackId);
             }
-            return { success: false, trackName, error: error.message };
+            return { success: false, trackName, trackId, error: error.message };
         }
     }
 
     try {
         const results = await Promise.all(downloadPromises);
-        const successfulDownloads = results.filter(r => r.success).map(r => r.path);
+        const successfulDownloads = results.filter(r => r.success);
         const failedDownloads = results.filter(r => !r.success);
 
         if (successfulDownloads.length === 0) {
-            res.status(500).json({ error: 'All downloads failed', failedTracks: failedDownloads.map(f => f.trackName) });
+            res.status(200).json({ success: false, message: 'All downloads failed', failedTracks: failedDownloads.map(f => ({ trackName: f.trackName, id: f.trackId })) });
             rimraf.rimraf(tempDir);
             return;
         }
@@ -376,30 +377,55 @@ app.post('/api/download-multiple', async (req, res) => {
 
         output.on('close', () => {
             console.log(`[Server] Zip archive created: ${zipPath}`);
-            res.download(zipPath, `${albumName}.zip`, (err) => {
-                if (err) {
-                    console.error('[Server] Error sending zip file:', err);
-                }
-                rimraf.rimraf(tempDir);
-                fs.unlink(zipPath, () => {});
-            });
+            res.json({ success: true, message: 'Downloads completed', failedTracks: failedDownloads.map(f => ({ trackName: f.trackName, id: f.trackId })), zipUrl: `/api/download-zip/${path.basename(zipPath)}` });
+            // Clean up the temp directory after the response is sent and the file is served
+            rimraf.rimraf(tempDir);
         });
 
         archive.on('error', (err) => {
-            throw err;
+            console.error('[Server] Archiver error:', err);
+            res.status(500).json({ success: false, error: 'Failed to create archive', failedTracks: failedDownloads.map(f => ({ trackName: f.trackName, id: f.trackId })) });
+            rimraf.rimraf(tempDir);
         });
 
         archive.pipe(output);
-        successfulDownloads.forEach(filePath => {
-            archive.file(filePath, { name: path.basename(filePath) });
+        successfulDownloads.forEach(result => {
+            archive.file(result.path, { name: path.basename(result.path) });
         });
         archive.finalize();
 
     } catch (error) {
         console.error('[Server] Error during multi-download:', error);
-        res.status(500).json({ error: 'Failed to process downloads' });
-        rimraf(tempDir);
+        res.status(500).json({ success: false, error: 'Failed to process downloads', failedTracks: failedDownloads.map(f => ({ trackName: f.trackName, id: f.trackId })) });
+        rimraf.rimraf(tempDir);
     }
+});
+
+app.get('/api/download-zip/:filename', (req, res) => {
+    const filename = req.params.filename;
+    const filePath = path.join(__dirname, 'temp', filename);
+
+    res.download(filePath, (err) => {
+        if (err) {
+            console.error('[Server] Error sending zip file:', err);
+            // Only send a response if headers haven't been sent yet
+            if (!res.headersSent) {
+                if (err.code === 'ENOENT') {
+                    return res.status(404).send('File not found.');
+                } else {
+                    return res.status(500).send('Error downloading file.');
+                }
+            }
+        }
+        // Clean up the file after sending, regardless of success or failure
+        fs.unlink(filePath, (unlinkErr) => {
+            if (unlinkErr) {
+                console.error('[Server] Error deleting temporary zip file:', unlinkErr);
+            }
+            // Temporarily remove directory cleanup to isolate ERR_HTTP_HEADERS_SENT
+            // rimraf.rimraf(path.dirname(filePath)); 
+        });
+    });
 });
 
 // 404 handler
