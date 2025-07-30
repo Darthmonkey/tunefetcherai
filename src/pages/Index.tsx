@@ -19,53 +19,62 @@ interface TrackInfo {
   duration?: number;
 }
 
-interface Session {
-  id: string;
-  artist: string;
-  album: string;
-  year?: number;
-  ai_prompt?: string;
-}
-
 const Index = () => {
-  const [artist, setArtist] = useState("");
-  const [album, setAlbum] = useState("");
-  const [year, setYear] = useState("");
-  const [aiPrompt, setAiPrompt] = useState("");
+  const [artistSearchQuery, setArtistSearchQuery] = useState("");
+  const [albums, setAlbums] = useState<any[]>([]);
+  const [searchingAlbums, setSearchingAlbums] = useState(false);
+  const [selectedAlbum, setSelectedAlbum] = useState<any | null>(null);
+
   const [manualUrls, setManualUrls] = useState("");
   const [tracks, setTracks] = useState<TrackInfo[]>([]);
-  const [currentSession, setCurrentSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchingTracks, setSearchingTracks] = useState(false);
   const [findingUrls, setFindingUrls] = useState(false);
   const [processingManual, setProcessingManual] = useState(false);
   const [searchPlaylists, setSearchPlaylists] = useState(false);
 
-  const generatePrompt = () => {
-    if (!artist || !album) {
-      toast.error("Please enter both artist and album");
+  const searchAlbumsByArtist = async () => {
+    if (!artistSearchQuery.trim()) {
+      toast.error("Please enter an artist name to search for albums.");
       return;
     }
 
-    let prompt = `Find YouTube URLs for all tracks from the album "${album}" by ${artist}`;
-    if (year) prompt += ` released in ${year}`;
-    
-    prompt += `\n\nPlease provide accurate, high-quality YouTube links for each track.`;
-    
-    setAiPrompt(prompt);
-    toast.success("AI prompt generated!");
+    setSearchingAlbums(true);
+    setAlbums([]); // Clear previous results
+    setSelectedAlbum(null); // Clear selected album
+    setTracks([]); // Clear tracks
+
+    try {
+      const response = await fetch(`http://localhost:3001/api/musicbrainz-albums-by-artist?artist=${encodeURIComponent(artistSearchQuery)}`);
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Album search failed');
+      }
+
+      setAlbums(data.albums);
+      toast.success(`Found ${data.albums.length} albums for "${artistSearchQuery}"!`);
+    } catch (error: Error) {
+      console.error('Error searching albums:', error);
+      toast.error(error.message || "Failed to find albums for artist");
+    } finally {
+      setSearchingAlbums(false);
+    }
   };
 
-  const generateTrackInfo = async () => {
-    if (!artist || !album) {
-      toast.error("Please enter both artist and album");
-      return;
-    }
+  const handleAlbumSelect = async (album: any) => {
+    setSelectedAlbum(album);
+    setTracks([]); // Clear existing tracks
 
+    // Automatically trigger track info generation and YouTube URL finding
+    await generateTrackInfo(album.title, album['artist-credit'][0].name, album['first-release-date'] ? new Date(album['first-release-date']).getFullYear().toString() : '');
+  };
+
+  const generateTrackInfo = async (albumTitle: string, artistName: string, year?: string) => {
     setSearchingTracks(true);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/musicbrainz-search?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}${year ? `&year=${encodeURIComponent(year)}` : ''}`);
+      const response = await fetch(`http://localhost:3001/api/musicbrainz-search?artist=${encodeURIComponent(artistName)}&album=${encodeURIComponent(albumTitle)}${year ? `&year=${encodeURIComponent(year)}` : ''}`);
       const data = await response.json();
       
       if (!data.success) {
@@ -82,14 +91,11 @@ const Index = () => {
       }));
 
       setTracks(formattedTracks);
-      setCurrentSession({
-        id: "dummy-session-id", // We are not using sessions anymore, but keeping it for now
-        artist,
-        album,
-        year: year ? parseInt(year) : undefined
-      });
-      
       toast.success(`Found ${data.totalTracks} tracks from "${data.release.title}"!`);
+      
+      // Automatically find YouTube URLs after tracks are found
+      await askAi(formattedTracks, artistName);
+
     } catch (error: Error) {
       console.error('Error searching MusicBrainz:', error);
       toast.error(error.message || "Failed to find track information");
@@ -98,19 +104,14 @@ const Index = () => {
     }
   };
 
-  const askAi = async () => {
-    if (!currentSession) {
-      toast.error("Please generate track information first");
-      return;
-    }
-
+  const askAi = async (tracksToProcess: TrackInfo[], artistName: string) => {
     setFindingUrls(true);
     
     try {
       const updatedTracks = await Promise.all(
-        tracks.map(async (track) => {
+        tracksToProcess.map(async (track) => {
           try {
-            const response = await fetch(`http://localhost:3001/api/search?q=${encodeURIComponent(`${track.artist} ${track.name}`)}`);
+            const response = await fetch(`http://localhost:3001/api/search?q=${encodeURIComponent(`${artistName} ${track.name}`)}`);
             const data = await response.json();
             return { ...track, youtubeUrl: data.url };
           } catch (error) {
@@ -276,158 +277,104 @@ const Index = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Search className="h-5 w-5 text-primary" />
-              Search Parameters
+              Artist Search
             </CardTitle>
             <CardDescription>
-              Enter the artist and album information to get started
+              Enter an artist name to find their albums
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label htmlFor="artist">Artist</Label>
-                <Input
-                  id="artist"
-                  value={artist}
-                  onChange={(e) => setArtist(e.target.value)}
-                  placeholder="Enter artist name"
-                />
-              </div>
-              <div>
-                <Label htmlFor="album">Album</Label>
-                <Input
-                  id="album"
-                  value={album}
-                  onChange={(e) => setAlbum(e.target.value)}
-                  placeholder="Enter album name"
-                />
-              </div>
-              <div>
-                <Label htmlFor="year">Year (Optional)</Label>
-                <Input
-                  id="year"
-                  value={year}
-                  onChange={(e) => setYear(e.target.value)}
-                  placeholder="e.g. 2023"
-                  type="number"
-                />
-              </div>
+            <div>
+              <Label htmlFor="artistSearch">Artist Name</Label>
+              <Input
+                id="artistSearch"
+                value={artistSearchQuery}
+                onChange={(e) => setArtistSearchQuery(e.target.value)}
+                placeholder="e.g., Queen"
+              />
             </div>
+            <Button
+              onClick={searchAlbumsByArtist}
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+              disabled={!artistSearchQuery.trim() || searchingAlbums}
+            >
+              {searchingAlbums ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Searching Albums...
+                </>
+              ) : (
+                <>
+                  <Search className="h-4 w-4 mr-2" />
+                  Search Albums
+                </>
+              )}
+            </Button>
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <Card className="shadow-lg">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Search className="h-5 w-5 text-primary" />
-                Track Discovery
-              </CardTitle>
-              <CardDescription>
-                Find tracks using MusicBrainz database
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Button 
-                onClick={generateTrackInfo}
-                className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
-                disabled={!artist || !album || searchingTracks}
-              >
-                {searchingTracks ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Searching MusicBrainz...
-                  </>
-                ) : (
-                  <>
-                    <Search className="h-4 w-4 mr-2" />
-                    Find Track Information
-                  </>
-                )}
-              </Button>
-              {currentSession && (
-                <div className="text-sm text-muted-foreground p-3 bg-secondary rounded-md">
-                  Found: {currentSession.album} by {currentSession.artist}
-                  {currentSession.year && ` (${currentSession.year})`}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-lg">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-accent" />
-                AI YouTube Search
-              </CardTitle>
-              <CardDescription>
-                Use AI to find YouTube URLs for tracks
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Button 
-                onClick={generatePrompt} 
-                variant="outline"
-                className="w-full"
-                disabled={!artist || !album}
-              >
-                <Sparkles className="h-4 w-4 mr-2" />
-                Generate AI Prompt
-              </Button>
-              <div>
-                <Label htmlFor="aiPrompt">AI Prompt</Label>
-                <Textarea
-                  id="aiPrompt"
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="AI prompt will appear here..."
-                  rows={3}
-                />
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox id="searchPlaylists" checked={searchPlaylists} onCheckedChange={setSearchPlaylists} />
-                <Label htmlFor="searchPlaylists">Search for playlists</Label>
-              </div>
-              <Button 
-                onClick={askAi}
-                className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
-                disabled={!currentSession || findingUrls}
-              >
-                {findingUrls ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Finding URLs...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-4 w-4 mr-2" />
-                    Find YouTube URLs
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-
-        {tracks.length > 0 && (
+        {albums.length > 0 && !selectedAlbum && (
           <Card className="mb-8 shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Music className="h-5 w-5 text-primary" />
-                Discovered Tracks
+                Select an Album
               </CardTitle>
               <CardDescription>
-                Select tracks to download and manage your collection
+                Click on an album to view its tracks and find YouTube URLs
               </CardDescription>
             </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {albums.map((album) => (
+                  <Button
+                    key={album.id}
+                    variant="outline"
+                    className="flex flex-col items-start h-auto p-4 text-left"
+                    onClick={() => handleAlbumSelect(album)}
+                  >
+                    <span className="font-semibold">{album.title}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {album['artist-credit']?.[0]?.artist?.name || 'Unknown Artist'}
+                      {album['first-release-date'] && ` (${new Date(album['first-release-date']).getFullYear()})`}
+                    </span>
+                  </Button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {selectedAlbum && (
+          <Card className="mb-8 shadow-lg">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Music className="h-5 w-5 text-primary" />
+                Selected Album: {selectedAlbum.title}
+              </CardTitle>
+            <CardDescription>
+                Tracks for this album are being fetched and YouTube URLs are being found automatically.
+              </CardDescription>
+          </CardHeader>
             <CardContent>
-              <TrackTable
-                tracks={tracks}
-                onTracksChange={setTracks}
-                albumName={album}
-                onDownloadTrack={handleDownloadTrack}
-                onDownloadMultiple={handleDownloadMultiple}
-              />
+              {(searchingTracks || findingUrls) ? (
+                <div className="flex items-center justify-center p-8">
+                  <Loader2 className="h-8 w-8 mr-2 animate-spin" />
+                  <span className="text-lg text-muted-foreground">
+                    {searchingTracks ? "Fetching tracks from MusicBrainz..." : "Finding YouTube URLs..."}
+                  </span>
+                </div>
+              ) : (
+                tracks.length > 0 && (
+                  <TrackTable
+                    tracks={tracks}
+                    onTracksChange={setTracks}
+                    albumName={selectedAlbum.title}
+                    onDownloadTrack={handleDownloadTrack}
+                    onDownloadMultiple={handleDownloadMultiple}
+                  />
+                )
+              )}
             </CardContent>
           </Card>
         )}

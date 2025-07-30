@@ -100,7 +100,53 @@ app.get('/api/search', (req, res) => {
 });
 
 // MusicBrainz search API
+app.get('/api/musicbrainz-albums-by-artist', (req, res) => {
+    const { artist } = req.query;
+    if (!artist) {
+        res.status(400).json({ error: 'Artist is required' });
+        return;
+    }
+
+    const mbSearchUrl = `https://musicbrainz.org/ws/2/release-group/?query=artist:${encodeURIComponent(artist)} AND primarytype:album&fmt=json`;
+    console.log(`[Server] MusicBrainz Album Search URL: ${mbSearchUrl}`);
+
+    https.get(mbSearchUrl, {
+        headers: {
+            'User-Agent': 'TuneFetcherAI/1.0 ( your-email@example.com )'
+        }
+    }, (searchRes) => {
+        let searchData = '';
+        searchRes.on('data', (chunk) => { searchData += chunk; });
+        searchRes.on('end', () => {
+            console.log(`[Server] MusicBrainz Album Search Response Status: ${searchRes.statusCode}`);
+            try {
+                const searchMbData = JSON.parse(searchData);
+                if (searchMbData['release-groups'] && searchMbData['release-groups'].length > 0) {
+                    const albums = searchMbData['release-groups'].map((rg) => ({
+                        id: rg.id,
+                        title: rg.title,
+                        'first-release-date': rg['first-release-date'],
+                        'artist-credit': rg['artist-credit']
+                    }));
+                    res.json({ success: true, albums });
+                    console.log(`[Server] Found ${albums.length} albums for artist: ${artist}.`);
+                } else {
+                    res.status(404).json({ success: false, error: 'No albums found for this artist.' });
+                    console.warn(`[Server] No albums found for artist: ${artist}.`);
+                }
+            } catch (parseError) {
+                console.error('[Server] Error parsing MusicBrainz album search data:', parseError);
+                res.status(500).json({ success: false, error: 'Failed to parse MusicBrainz album search data' });
+            }
+        });
+    }).on('error', (e) => {
+        console.error('[Server] Error fetching MusicBrainz album search:', e);
+        res.status(500).json({ success: false, error: 'Failed to fetch MusicBrainz album search' });
+    });
+});
+
 app.get('/api/musicbrainz-search', (req, res) => {
+
     const { artist, album, year } = req.query;
     if (!artist || !album) {
         res.status(400).json({ error: 'Artist and album are required' });
