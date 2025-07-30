@@ -75,7 +75,7 @@ const Index = () => {
     setTracks([]); // Clear existing tracks
 
     // Automatically trigger track info generation and YouTube URL finding
-    await generateTrackInfo(album.title, artistSearchQuery, album['first-release-date'] ? new Date(album['first-release-date']).getFullYear().toString() : '');
+    await generateTrackInfo(album.title, album.artist, album['first-release-date'] ? new Date(album['first-release-date']).getFullYear().toString() : '');
   };
 
   const generateTrackInfo = async (albumTitle: string, artistName: string, year?: string) => {
