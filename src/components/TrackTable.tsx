@@ -61,16 +61,22 @@ export const TrackTable = ({ tracks, onTracksChange, albumName, artistName, onDo
   };
 
   const toggleAllTracks = () => {
-    const allSelected = tracks.every(track => track.selected);
-    const updatedTracks = tracks.map(track => ({
-      ...track,
-      selected: !allSelected
-    }));
+    const selectableTracks = tracks.filter(track => track.youtubeUrl);
+    const allSelectableSelected = selectableTracks.length > 0 && selectableTracks.every(track => track.selected);
+
+    const updatedTracks = tracks.map(track => {
+      if (track.youtubeUrl) {
+        return { ...track, selected: !allSelectableSelected };
+      }
+      return track; // Keep non-selectable tracks as they are
+    });
     onTracksChange(updatedTracks);
   };
 
-  const selectedCount = tracks.filter(track => track.selected).length;
-  const allSelected = tracks.length > 0 && selectedCount === tracks.length;
+  const selectableTracks = tracks.filter(track => track.youtubeUrl);
+  const selectedCount = selectableTracks.filter(track => track.selected).length;
+  const totalSelectableTracks = selectableTracks.length;
+  const allSelectableSelected = totalSelectableTracks > 0 && selectedCount === totalSelectableTracks;
 
   return (
     <Card>
@@ -79,12 +85,13 @@ export const TrackTable = ({ tracks, onTracksChange, albumName, artistName, onDo
           {albumName}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Checkbox
-              checked={allSelected}
+              checked={allSelectableSelected}
               onCheckedChange={toggleAllTracks}
               id="select-all"
+              disabled={totalSelectableTracks === 0}
             />
             <label htmlFor="select-all" className="cursor-pointer">
-              Select All ({selectedCount}/{tracks.length})
+              Select All ({selectedCount}/{totalSelectableTracks})
             </label>
           </div>
         </CardTitle>
@@ -106,6 +113,7 @@ export const TrackTable = ({ tracks, onTracksChange, albumName, artistName, onDo
                   <Checkbox
                     checked={track.selected}
                     onCheckedChange={() => toggleTrackSelection(track.id)}
+                    disabled={!track.youtubeUrl}
                   />
                 </TableCell>
                 <TableCell className="font-medium">

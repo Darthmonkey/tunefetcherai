@@ -12,7 +12,8 @@ This file is used to maintain context across sessions with the Gemini CLI agent.
 
 ## Completed Actions:
 
-*   [List completed tasks here]
+*   Added and verified the 'Refresh' button functionality for MusicBrainz track re-discovery.
+*   Disabled track selection checkbox for tracks without a YouTube URL.
 
 ## Key Decisions/Notes:
 
