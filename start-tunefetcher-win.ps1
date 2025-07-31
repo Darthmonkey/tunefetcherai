@@ -1,3 +1,5 @@
+$env:VITE_DISABLE_RATE_LIMIT="true"
+
 # Install dependencies
 npm install
 

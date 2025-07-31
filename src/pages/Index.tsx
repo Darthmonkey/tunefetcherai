@@ -328,6 +328,11 @@ const Index = () => {
             <h1 className="text-4xl font-bold text-primary cursor-pointer" onClick={handleHome}>
               TuneFetcher AI
             </h1>
+            {import.meta.env.VITE_DISABLE_RATE_LIMIT === 'true' && (
+              <span className="ml-4 px-2 py-1 text-sm font-semibold text-red-800 bg-red-100 rounded-full dark:bg-red-800 dark:text-red-100">
+                Development Mode (Rate Limit Disabled)
+              </span>
+            )}
           </div>
           <p className="text-lg text-muted-foreground">
             Your personal AI-powered music discovery and download assistant.

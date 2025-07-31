@@ -12,6 +12,9 @@ This file is used to maintain context across sessions with the Gemini CLI agent.
 *   Disabled track selection checkbox for tracks without a YouTube URL.
 *   Hardened web security by adding Helmet and Express-Rate-Limit middleware to `server.js`.
 *   Prepared for migration to Raspberry Pi hosting (yt-dlp compatibility, Node.js, resource optimization, environment variables).
+*   Created `start-tunefetcher-pi.sh` for Raspberry Pi deployment.
+*   Implemented conditional rate limiting bypass for testing in `server.js` and added a development mode indicator in the frontend.
+*   Renamed `start-app.ps1` to `start-tunefetcher-win.ps1`.
 
 ## Completed Actions:
 

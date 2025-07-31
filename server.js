@@ -28,8 +28,12 @@ const apiLimiter = rateLimit({
     message: "Too many requests from this IP, please try again after 15 minutes"
 });
 
-// Apply to all requests
-app.use(apiLimiter);
+// Apply to all requests, unless DISABLE_RATE_LIMIT environment variable is set to 'true'
+if (process.env.VITE_DISABLE_RATE_LIMIT !== 'true') {
+    app.use(apiLimiter);
+} else {
+    console.log('Rate limiting is DISABLED for testing purposes.');
+}
 
 app.use(express.json());
 
