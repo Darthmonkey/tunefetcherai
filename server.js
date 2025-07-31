@@ -214,87 +214,108 @@ app.get('/api/musicbrainz-albums-by-artist', (req, res) => {
     });
 });
 
-app.get('/api/musicbrainz-search', (req, res) => {
-
+app.get('/api/musicbrainz-search', async (req, res) => {
     const { artist, album, year } = req.query;
     if (!artist || !album) {
-        res.status(400).json({ error: 'Artist and album are required' });
-        return;
+        return res.status(400).json({ success: false, error: 'Artist and album are required' });
     }
 
-    // Step 1: Search for releases to get a release ID
-    let mbSearchQuery = `artist:${artist} AND release:${album}`;
-    if (year) {
-        mbSearchQuery += ` AND date:${year}`;
-    }
-    const mbSearchUrl = `https://musicbrainz.org/ws/2/release/?query=${encodeURIComponent(mbSearchQuery)}&fmt=json`;
-    console.log(`[Server] MusicBrainz Search URL (Step 1): ${mbSearchUrl}`);
+    const USER_AGENT = 'TuneFetcherAI/1.0 ( your-email@example.com )';
+    const MAX_RELEASES_TO_FETCH = 10; // Limit the number of detailed releases to fetch
 
-    https.get(mbSearchUrl, {
-        headers: {
-            'User-Agent': 'TuneFetcherAI/1.0 ( your-email@example.com )'
-        }
-    }, (searchRes) => {
-        let searchData = '';
-        searchRes.on('data', (chunk) => { searchData += chunk; });
-        searchRes.on('end', () => {
-            console.log(`[Server] MusicBrainz Search Response Status (Step 1): ${searchRes.statusCode}`);
-            try {
-                const searchMbData = JSON.parse(searchData);
-                if (searchMbData.releases && searchMbData.releases.length > 0) {
-                    const bestRelease = searchMbData.releases[0]; // Take the first result
-                    const releaseId = bestRelease.id;
-                    console.log(`[Server] Found best matching release ID: ${releaseId} (${bestRelease.title})`);
-
-                    // Step 2: Fetch detailed release information with recordings using the release ID
-                    const mbDetailsUrl = `https://musicbrainz.org/ws/2/release/${releaseId}?fmt=json&inc=recordings`;
-                    console.log(`[Server] MusicBrainz Details URL (Step 2): ${mbDetailsUrl}`);
-
-                    https.get(mbDetailsUrl, {
-                        headers: {
-                            'User-Agent': 'TuneFetcherAI/1.0 ( your-email@example.com )'
-                        }
-                    }, (detailsRes) => {
-                        let detailsData = '';
-                        detailsRes.on('data', (chunk) => { detailsData += chunk; });
-                        detailsRes.on('end', () => {
-                            console.log(`[Server] MusicBrainz Details Response Status (Step 2): ${detailsRes.statusCode}`);
-                            try {
-                                const detailsMbData = JSON.parse(detailsData);
-                                const allTracks = detailsMbData.media?.flatMap(mediaItem => Array.isArray(mediaItem.tracks) ? mediaItem.tracks : []) || [];
-
-                                const tracks = allTracks.map((track) => ({
-                                    id: track.id,
-                                    name: track.title,
-                                    trackNumber: track.position ? parseInt(track.position) : undefined,
-                                    artist: track['artist-credit']?.[0]?.artist?.name || artist,
-                                    duration: track.length ? Math.floor(track.length / 1000) : undefined,
-                                }));
-                                res.json({ success: true, release: { title: detailsMbData.title }, totalTracks: tracks.length, tracks });
-                                console.log(`[Server] Found ${tracks.length} tracks from MusicBrainz.`);
-                            } catch (parseError) {
-                                console.error('[Server] Error parsing MusicBrainz details data:', parseError);
-                                res.status(500).json({ success: false, error: 'Failed to parse MusicBrainz details data' });
-                            }
+    // Helper function to fetch detailed release information
+    const fetchReleaseDetails = (releaseId) => {
+        return new Promise((resolve, reject) => {
+            const mbDetailsUrl = `https://musicbrainz.org/ws/2/release/${releaseId}?fmt=json&inc=recordings`;
+            https.get(mbDetailsUrl, { headers: { 'User-Agent': USER_AGENT } }, (detailsRes) => {
+                let detailsData = '';
+                detailsRes.on('data', (chunk) => { detailsData += chunk; });
+                detailsRes.on('end', () => {
+                    if (detailsRes.statusCode !== 200) {
+                        return reject(new Error(`MusicBrainz details API returned status ${detailsRes.statusCode}`));
+                    }
+                    try {
+                        const detailsMbData = JSON.parse(detailsData);
+                        const allTracks = detailsMbData.media?.flatMap(mediaItem => Array.isArray(mediaItem.tracks) ? mediaItem.tracks : []) || [];
+                        const tracks = allTracks.map((track) => ({
+                            id: track.id,
+                            name: track.title,
+                            trackNumber: track.position ? parseInt(track.position) : undefined,
+                            artist: track['artist-credit']?.[0]?.artist?.name || artist,
+                            duration: track.length ? Math.floor(track.length / 1000) : undefined,
+                        }));
+                        resolve({
+                            id: detailsMbData.id,
+                            title: detailsMbData.title,
+                            'first-release-date': detailsMbData['first-release-date'],
+                            artist: detailsMbData['artist-credit']?.[0]?.artist?.name || artist,
+                            tracks: tracks,
+                            totalTracks: tracks.length,
+                            disambiguation: detailsMbData.disambiguation,
+                            format: detailsMbData.media?.[0]?.format, // Get format of the first medium
                         });
-                    }).on('error', (e) => {
-                        console.error('[Server] Error fetching MusicBrainz details:', e);
-                        res.status(500).json({ success: false, error: 'Failed to fetch MusicBrainz details' });
-                    });
-
-                } else {
-                    res.status(404).json({ success: false, error: 'No matching release found on MusicBrainz (Step 1)' });
-                    console.warn('[Server] No matching release found on MusicBrainz (Step 1).');
-                }
-            } catch (parseError) {
-                console.error('[Server] Error parsing MusicBrainz search data:', parseError);
-                res.status(500).json({ success: false, error: 'Failed to parse MusicBrainz search data' });
-            }
+                    } catch (parseError) {
+                        reject(new Error(`Error parsing MusicBrainz details data: ${parseError.message}`));
+                    }
+                });
+            }).on('error', (e) => {
+                reject(new Error(`Error fetching MusicBrainz details: ${e.message}`));
+            });
         });
-    }).on('error', (e) => {
-        console.error('[Server] Error fetching MusicBrainz search:', e);
-        res.status(500).json({ success: false, error: 'Failed to fetch MusicBrainz search' });
-    });
+    };
+
+    try {
+        // Step 1: Search for releases
+        let mbSearchQuery = `artist:${artist} AND release:${album}`;
+        if (year) {
+            mbSearchQuery += ` AND date:${year}`;
+        }
+        const mbSearchUrl = `https://musicbrainz.org/ws/2/release/?query=${encodeURIComponent(mbSearchQuery)}&fmt=json`;
+        console.log(`[Server] MusicBrainz Search URL (Step 1): ${mbSearchUrl}`);
+
+        const searchResponse = await new Promise((resolve, reject) => {
+            https.get(mbSearchUrl, { headers: { 'User-Agent': USER_AGENT } }, (searchRes) => {
+                let searchData = '';
+                searchRes.on('data', (chunk) => { searchData += chunk; });
+                searchRes.on('end', () => {
+                    if (searchRes.statusCode !== 200) {
+                        return reject(new Error(`MusicBrainz search API returned status ${searchRes.statusCode}`));
+                    }
+                    try {
+                        resolve(JSON.parse(searchData));
+                    } catch (parseError) {
+                        reject(new Error(`Error parsing MusicBrainz search data: ${parseError.message}`));
+                    }
+                });
+            }).on('error', (e) => {
+                reject(new Error(`Error fetching MusicBrainz search: ${e.message}`));
+            });
+        });
+
+        if (!searchResponse.releases || searchResponse.releases.length === 0) {
+            return res.status(404).json({ success: false, error: 'No matching releases found on MusicBrainz.' });
+        }
+
+        // Step 2: Fetch detailed information for multiple releases concurrently
+        const releaseDetailPromises = searchResponse.releases
+            .slice(0, MAX_RELEASES_TO_FETCH) // Limit to a few releases
+            .map(release => fetchReleaseDetails(release.id).catch(error => {
+                console.warn(`[Server] Failed to fetch details for release ${release.id}: ${error.message}`);
+                return null; // Return null for failed fetches
+            }));
+
+        const detailedReleases = (await Promise.all(releaseDetailPromises)).filter(Boolean); // Filter out nulls
+
+        if (detailedReleases.length === 0) {
+            return res.status(404).json({ success: false, error: 'No detailed release information could be retrieved.' });
+        }
+
+        res.json({ success: true, releases: detailedReleases });
+
+    } catch (error) {
+        console.error('[Server] Error in musicbrainz-search API:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to search MusicBrainz' });
+    }
 });
 
 

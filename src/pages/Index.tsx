@@ -26,6 +26,8 @@ const Index = () => {
   const [albums, setAlbums] = useState<any[]>([]);
   const [searchingAlbums, setSearchingAlbums] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<any | null>(null);
+  const [allAlbumVersions, setAllAlbumVersions] = useState<any[]>([]);
+  const [currentAlbumVersionIndex, setCurrentAlbumVersionIndex] = useState(0);
 
   const [sortYearOrder, setSortYearOrder] = useState<'asc' | 'desc' | null>('desc');
 
@@ -81,23 +83,34 @@ const Index = () => {
   const handleAlbumSelect = async (album: any) => {
     setSelectedAlbum(album);
     setTracks([]); // Clear existing tracks
+    setSearchingTracks(true);
 
-    // Automatically trigger track info generation and YouTube URL finding
-    await generateTrackInfo(album.title, album.artist, album['first-release-date'] ? new Date(album['first-release-date']).getFullYear().toString() : '');
+    try {
+      const response = await fetch(`http://localhost:3001/api/musicbrainz-search?artist=${encodeURIComponent(album.artist)}&album=${encodeURIComponent(album.title)}${album['first-release-date'] ? `&year=${encodeURIComponent(new Date(album['first-release-date']).getFullYear().toString())}` : ''}`);
+      const data = await response.json();
+
+      if (!data.success || !data.releases || data.releases.length === 0) {
+        throw new Error(data.error || 'No detailed album releases found.');
+      }
+
+      setAllAlbumVersions(data.releases);
+      setCurrentAlbumVersionIndex(0);
+      // Automatically trigger track info generation and YouTube URL finding for the first version
+      await generateTrackInfo(data.releases[0]);
+
+    } catch (error: Error) {
+      console.error('Error fetching album versions:', error);
+      toast.error(error.message || "Failed to get album versions");
+    } finally {
+      setSearchingTracks(false);
+    }
   };
 
-  const generateTrackInfo = async (albumTitle: string, artistName: string, year?: string) => {
+  const generateTrackInfo = async (albumVersion: any) => {
     setSearchingTracks(true);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/musicbrainz-search?artist=${encodeURIComponent(artistName)}&album=${encodeURIComponent(albumTitle)}${year ? `&year=${encodeURIComponent(year)}` : ''}`);
-      const data = await response.json();
-      
-      if (!data.success) {
-        throw new Error(data.error || 'Search failed');
-      }
-      
-      const formattedTracks: TrackInfo[] = data.tracks.map((track: { id: string; name: string; trackNumber?: number; artist?: string; duration?: number; }) => ({
+      const formattedTracks: TrackInfo[] = albumVersion.tracks.map((track: { id: string; name: string; trackNumber?: number; artist?: string; duration?: number; }) => ({
         id: track.id,
         name: track.name,
         trackNumber: track.trackNumber,
@@ -107,10 +120,10 @@ const Index = () => {
       }));
 
       setTracks(formattedTracks);
-      toast.success(`Found ${data.totalTracks} tracks from "${data.release.title}"!`);
+      toast.success(`Found ${albumVersion.totalTracks} tracks from "${albumVersion.title}"!`);
       
       // Automatically find YouTube URLs after tracks are found
-      await askAi(formattedTracks, artistName);
+      await askAi(formattedTracks, albumVersion.artist);
 
     } catch (error: Error) {
       console.error('Error searching MusicBrainz:', error);
@@ -118,6 +131,14 @@ const Index = () => {
     } finally {
       setSearchingTracks(false);
     }
+  };
+
+  const handleShuffleAlbums = async () => {
+    if (allAlbumVersions.length === 0) return;
+
+    const nextIndex = (currentAlbumVersionIndex + 1) % allAlbumVersions.length;
+    setCurrentAlbumVersionIndex(nextIndex);
+    await generateTrackInfo(allAlbumVersions[nextIndex]);
   };
 
   const askAi = async (tracksToProcess: TrackInfo[], artistName: string) => {
@@ -449,27 +470,22 @@ const Index = () => {
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Music className="h-5 w-5 text-primary" />
-                  Selected Album: {selectedAlbum.title}
+                  Selected Album: {allAlbumVersions[currentAlbumVersionIndex]?.title} ({currentAlbumVersionIndex + 1} of {allAlbumVersions.length})
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => generateTrackInfo(selectedAlbum.title, selectedAlbum.artist, selectedAlbum['first-release-date'] ? new Date(selectedAlbum['first-release-date']).getFullYear().toString() : '')}
-                  disabled={searchingTracks || findingUrls}
+                  onClick={handleShuffleAlbums}
+                  disabled={searchingTracks || findingUrls || allAlbumVersions.length <= 1}
                 >
                   <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh
+                  Shuffle Albums
                 </Button>
               </CardTitle>
-            <CardDescription>
-                Tracks for this album are being fetched and YouTube URLs are being found automatically.
-              </CardDescription>
-              <p className="text-sm text-muted-foreground mt-2">
-                Note: Not all tracks may have a corresponding YouTube URL available.
-              </p>
-              <p className="text-sm text-muted-foreground mt-2">
-                Some tracks may not be downloadable due to content restrictions (e.g., explicit lyrics).
-              </p>
+            <ul className="list-disc pl-5 text-sm text-muted-foreground mt-2">
+                <li>Tracks for this album are being fetched from MusicBrainz, and YouTube URLs are being found using the best available match. Not all tracks will exactly match the track name listed, and some may not have a corresponding YouTube URL.</li>
+                <li>Some tracks may not be downloadable due to content restrictions (e.g., explicit lyrics).</li>
+              </ul>
           </CardHeader>
             <CardContent>
               {(searchingTracks || findingUrls) ? (
