@@ -27,7 +27,7 @@ const Index = () => {
   const [searchingAlbums, setSearchingAlbums] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<any | null>(null);
 
-  const [sortYearOrder, setSortYearOrder] = useState<'asc' | 'desc' | null>(null);
+  const [sortYearOrder, setSortYearOrder] = useState<'asc' | 'desc' | null>('desc');
 
   const [manualUrls, setManualUrls] = useState("");
   const [tracks, setTracks] = useState<TrackInfo[]>([]);
@@ -36,6 +36,14 @@ const Index = () => {
   const [findingUrls, setFindingUrls] = useState(false);
   const [processingManual, setProcessingManual] = useState(false);
   const [searchPlaylists, setSearchPlaylists] = useState(false);
+
+  const handleHome = () => {
+    setArtistSearchQuery("");
+    setAlbums([]);
+    setSelectedAlbum(null);
+    setTracks([]);
+    setManualUrls("");
+  };
 
   const searchAlbumsByArtist = async () => {
     if (!artistSearchQuery.trim()) {
@@ -121,7 +129,7 @@ const Index = () => {
           try {
             const response = await fetch(`http://localhost:3001/api/search?q=${encodeURIComponent(`${artistName} ${track.name}`)}`);
             const data = await response.json();
-            return { ...track, youtubeUrl: data.url };
+            return { ...track, youtubeUrl: data.url, duration: track.duration };
           } catch (error) {
             console.error('Error fetching URL for', track.name, error);
             return track; // Return original track if URL fetching fails
@@ -177,7 +185,7 @@ const Index = () => {
     }
   };
 
-  const handleDownloadMultiple = async (tracksToDownload: TrackInfo[], albumName: string) => {
+  const handleDownloadMultiple = async (tracksToDownload: TrackInfo[], albumName: string, artistName?: string) => {
     toast.info(`Starting download for ${tracksToDownload.length} tracks...`);
 
     // Set initial download status to pending for selected tracks
@@ -194,7 +202,7 @@ const Index = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ tracks: tracksToDownload, albumName }),
+        body: JSON.stringify({ tracks: tracksToDownload, albumName, artistName }),
       });
 
       if (response.ok) {
@@ -206,14 +214,14 @@ const Index = () => {
             const downloadUrl = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = downloadUrl;
-            a.download = `${albumName}.zip`;
+            a.download = `${artistName || albumName}.zip`;
             document.body.appendChild(a);
             a.click();
             a.remove();
             window.URL.revokeObjectURL(downloadUrl);
-            toast.success(`Downloaded ${albumName}.zip`);
+            toast.success(`Downloaded ${artistName || albumName}.zip`);
           } else {
-            toast.error(`Failed to download ${albumName}.zip`);
+            toast.error(`Failed to download ${artistName || albumName}.zip`);
           }
         } else {
           toast.success(`Downloads completed.`);
@@ -258,53 +266,52 @@ const Index = () => {
 
   const processManualUrl = async () => {
     const urls = manualUrls.split('\n').filter(url => url.trim());
-    
+
     if (urls.length === 0) {
       toast.error("Please enter at least one YouTube URL");
       return;
     }
 
     setProcessingManual(true);
-    
+
     try {
-      for (const url of urls) {
-        const getYouTubeVideoId = (url: string) => {
-          const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-          const match = url.match(regExp);
-          if (match && match[2].length === 11) {
-            return match[2];
-          }
-          return null;
-        };
+      if (urls.length === 1) {
+        // Single URL download
+        const response = await fetch(`http://localhost:3001/api/get-youtube-title?url=${encodeURIComponent(urls[0])}`);
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to get YouTube title');
+        }
+        const trackName = data.title;
+        await handleDownloadTrack({ id: urls[0], name: trackName, youtubeUrl: urls[0], selected: true });
+      } else {
+        // Multiple URL download (zip)
+        toast.info(`Fetching titles for ${urls.length} tracks...`);
+        const tracksToDownload = await Promise.all(
+          urls.map(async (url) => {
+            try {
+              const response = await fetch(`http://localhost:3001/api/get-youtube-title?url=${encodeURIComponent(url)}`);
+              const data = await response.json();
+              if (!response.ok) {
+                toast.error(`Failed to get title for ${url}`);
+                return null;
+              }
+              return { id: url, name: data.title, youtubeUrl: url, selected: true };
+            } catch (error) {
+              toast.error(`Failed to get title for ${url}`);
+              return null;
+            }
+          })
+        );
 
-        const videoId = getYouTubeVideoId(url);
-        const trackName = videoId || `Manual Download ${Date.now()}`; // Fallback if ID not found
+        const validTracks = tracksToDownload.filter(track => track !== null) as TrackInfo[];
 
-        const response = await fetch('http://localhost:3001/api/download-single', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ url, name: trackName }),
-        });
-        
-        if (response.ok) {
-          const blob = await response.blob();
-          const downloadUrl = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = downloadUrl;
-          a.download = `${trackName}.mp3`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          toast.success(`Started download for ${url}`);
-        } else {
-          const errorData = await response.json();
-          toast.error(`Failed to download ${url}: ${errorData.error || response.statusText}`);
+        if (validTracks.length > 0) {
+          await handleDownloadMultiple(validTracks, 'Various Artists');
         }
       }
       setManualUrls(''); // Clear input
-    } catch (error: Error) {
+    } catch (error: any) {
       console.error('Error processing manual URLs:', error);
       toast.error(error.message || "Failed to process URLs");
     } finally {
@@ -318,12 +325,12 @@ const Index = () => {
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-2 mb-4">
             <Music className="h-8 w-8 text-primary" />
-            <h1 className="text-4xl font-bold text-primary">
+            <h1 className="text-4xl font-bold text-primary cursor-pointer" onClick={handleHome}>
               TuneFetcher AI
             </h1>
           </div>
           <p className="text-lg text-muted-foreground">
-            Discover and download music tracks with AI-powered search
+            Your personal AI-powered music discovery and download assistant.
           </p>
         </div>
 
@@ -344,6 +351,11 @@ const Index = () => {
                 id="artistSearch"
                 value={artistSearchQuery}
                 onChange={(e) => setArtistSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    searchAlbumsByArtist();
+                  }
+                }}
                 placeholder="e.g., Queen"
               />
             </div>
@@ -457,6 +469,7 @@ const Index = () => {
                     tracks={tracks}
                     onTracksChange={setTracks}
                     albumName={selectedAlbum.title}
+                    artistName={selectedAlbum.artist}
                     onDownloadTrack={handleDownloadTrack}
                     onDownloadMultiple={handleDownloadMultiple}
                   />
@@ -473,7 +486,7 @@ const Index = () => {
               Manual YouTube URLs
             </CardTitle>
             <CardDescription>
-              Enter YouTube URLs directly for individual tracks
+              Enter YouTube URLs directly for individual tracks. In YouTube, right-click on the song and select 'Copy link address'.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -483,7 +496,8 @@ const Index = () => {
                 id="manualUrls"
                 value={manualUrls}
                 onChange={(e) => setManualUrls(e.target.value)}
-                placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ\nhttps://www.youtube.com/watch?v=..."
+                placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ
+https://www.youtube.com/watch?v=..."
                 rows={4}
               />
             </div>

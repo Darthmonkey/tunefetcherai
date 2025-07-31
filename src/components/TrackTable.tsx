@@ -28,11 +28,12 @@ interface TrackTableProps {
   tracks: TrackInfo[];
   onTracksChange: (tracks: TrackInfo[]) => void;
   albumName: string;
+  artistName: string;
   onDownloadTrack: (track: TrackInfo) => void;
-  onDownloadMultiple: (tracks: TrackInfo[], albumName: string) => Promise<void>;
+  onDownloadMultiple: (tracks: TrackInfo[], albumName: string, artistName: string) => Promise<void>;
 }
 
-export const TrackTable = ({ tracks, onTracksChange, albumName, onDownloadTrack, onDownloadMultiple }: TrackTableProps) => {
+export const TrackTable = ({ tracks, onTracksChange, albumName, artistName, onDownloadTrack, onDownloadMultiple }: TrackTableProps) => {
   const [isDownloading, setIsDownloading] = useState(false);
 
   const handleDownloadSelected = async () => {
@@ -44,7 +45,7 @@ export const TrackTable = ({ tracks, onTracksChange, albumName, onDownloadTrack,
 
     setIsDownloading(true);
     try {
-      await onDownloadMultiple(selectedTracks, albumName);
+      await onDownloadMultiple(selectedTracks, albumName, artistName);
     } catch (error) {
       // Error is handled in the parent component
     } finally {

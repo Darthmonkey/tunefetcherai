@@ -99,6 +99,21 @@ app.get('/api/search', (req, res) => {
     });
 });
 
+app.get('/api/get-youtube-title', async (req, res) => {
+    const { url } = req.query;
+    if (!url) {
+        return res.status(400).json({ error: 'URL is required' });
+    }
+
+    try {
+        const title = await youtubeDl(url, { getTitle: true });
+        res.json({ title });
+    } catch (error) {
+        console.error(`[Server] Error fetching title for ${url}:`, error);
+        res.status(500).json({ error: 'Failed to fetch YouTube title' });
+    }
+});
+
 // MusicBrainz search API
 app.get('/api/musicbrainz-albums-by-artist', (req, res) => {
     const { artist } = req.query;
@@ -324,7 +339,7 @@ app.post('/api/download-single', async (req, res) => {
 });
 
 app.post('/api/download-multiple', async (req, res) => {
-    const { tracks, albumName } = req.body;
+    const { tracks, albumName, artistName } = req.body;
     console.log(`[Server] Multi-download request for album: ${albumName}`);
 
     if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
@@ -371,7 +386,7 @@ app.post('/api/download-multiple', async (req, res) => {
             return;
         }
 
-        const zipPath = path.join(__dirname, 'temp', `${albumName}.zip`);
+        const zipPath = path.join(__dirname, 'temp', `${artistName || albumName}.zip`);
         const output = fs.createWriteStream(zipPath);
         const archive = archiver('zip', { zlib: { level: 9 } });
 
@@ -389,8 +404,9 @@ app.post('/api/download-multiple', async (req, res) => {
         });
 
         archive.pipe(output);
+        const zipFolderName = albumName;
         successfulDownloads.forEach(result => {
-            archive.file(result.path, { name: path.basename(result.path) });
+            archive.file(result.path, { name: `${zipFolderName}/${path.basename(result.path)}` });
         });
         archive.finalize();
 
