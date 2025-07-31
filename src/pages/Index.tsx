@@ -200,8 +200,21 @@ const Index = () => {
       if (response.ok) {
         const data = await response.json();
         if (data.zipUrl) {
-          window.open(data.zipUrl, '_blank');
-          toast.success(`Downloaded ${albumName}.zip`);
+          const zipResponse = await fetch(`http://localhost:3001${data.zipUrl}`);
+          if (zipResponse.ok) {
+            const blob = await zipResponse.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = `${albumName}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+            toast.success(`Downloaded ${albumName}.zip`);
+          } else {
+            toast.error(`Failed to download ${albumName}.zip`);
+          }
         } else {
           toast.success(`Downloads completed.`);
         }
