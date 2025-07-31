@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { TrackTable } from "@/components/TrackTable";
 import { toast } from "sonner";
-import { Loader2, Music, Download, Search, Sparkles } from "lucide-react";
+import { Loader2, Music, Download, Search, Sparkles, RefreshCw } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -441,9 +441,20 @@ const Index = () => {
         {selectedAlbum && (
           <Card className="mb-8 shadow-lg">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Music className="h-5 w-5 text-primary" />
-                Selected Album: {selectedAlbum.title}
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Music className="h-5 w-5 text-primary" />
+                  Selected Album: {selectedAlbum.title}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => generateTrackInfo(selectedAlbum.title, selectedAlbum.artist, selectedAlbum['first-release-date'] ? new Date(selectedAlbum['first-release-date']).getFullYear().toString() : '')}
+                  disabled={searchingTracks || findingUrls}
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
+                </Button>
               </CardTitle>
             <CardDescription>
                 Tracks for this album are being fetched and YouTube URLs are being found automatically.
