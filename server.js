@@ -8,6 +8,8 @@ import { youtubeDl } from 'youtube-dl-exec';
 import fs from 'fs';
 import archiver from 'archiver';
 import * as rimraf from 'rimraf';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,6 +17,19 @@ const __dirname = path.dirname(__filename);
 const PORT = 3001;
 
 const app = express();
+
+// Apply security middleware
+app.use(helmet());
+
+// Basic rate limiting to prevent abuse
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per windowMs
+    message: "Too many requests from this IP, please try again after 15 minutes"
+});
+
+// Apply to all requests
+app.use(apiLimiter);
 
 app.use(express.json());
 
@@ -26,19 +41,19 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-// CORS middleware
-app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Request-Method', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET, POST');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    if (req.method === 'OPTIONS') {
-        res.writeHead(200);
-        res.end();
-        return;
-    }
-    next();
-});
+// NOTE: Removed overly permissive CORS. For production, configure specific origins if needed.
+// app.use((req, res, next) => {
+//     res.setHeader('Access-Control-Allow-Origin', '*');
+//     res.setHeader('Access-Control-Request-Method', '*');
+//     res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET, POST');
+//     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+//     if (req.method === 'OPTIONS') {
+//         res.writeHead(200);
+//         res.end();
+//         return;
+//     }
+//     next();
+// });
 
 // YouTube search API
 app.get('/api/search', (req, res) => {
