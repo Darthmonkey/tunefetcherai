@@ -19,33 +19,12 @@ This file is used to maintain context across sessions with the Gemini CLI agent.
 *   Created `start-tunefetcher-pi.sh` for Raspberry Pi deployment.
 *   Implemented conditional rate limiting bypass for testing in `server.js` and added a development mode indicator in the frontend.
 *   Renamed `start-app.ps1` to `start-tunefetcher-win.ps1`.
-
 *   Updated album track description for clarity and ensured all related notes are correctly bullet-pointed.
-
-## Completed Actions:
-
-*   Added and verified the 'Refresh' button functionality for MusicBrainz track re-discovery.
-*   Disabled track selection checkbox for tracks without a YouTube URL.
-*   Hardened web security by adding Helmet and Express-Rate-Limit middleware to `server.js`.
-*   Prepared for migration to Raspberry Pi hosting (yt-dlp compatibility, Node.js, resource optimization, environment variables).
-*   Created `start-tunefetcher-pi.sh` for Raspberry Pi deployment.
-*   Implemented conditional rate limiting bypass for testing in `server.js` and added a development mode indicator in the frontend.
-*   Renamed `start-app.ps1` to `start-tunefetcher-win.ps1`.
-
-## Completed Actions:
-
-*   Added and verified the 'Refresh' button functionality for MusicBrainz track re-discovery.
-*   Disabled track selection checkbox for tracks without a YouTube URL.
-*   Hardened web security by adding Helmet and Express-Rate-Limit middleware to `server.js`.
-
-## In Progress:
-
-*   [List tasks currently being worked on here]
-
-## Completed Actions:
-
-*   Added and verified the 'Refresh' button functionality for MusicBrainz track re-discovery.
-*   Disabled track selection checkbox for tracks without a YouTube URL.
+*   Implemented one-click track discovery and URL generation.
+*   Added a "Download All" button with default selection.
+*   Completed thorough testing of the "Manual YouTube URLs" button.
+*   Allowed users to edit the file name before downloading.
+*   Allowed users to choose the output folder for the downloaded file.
 
 ## Key Decisions/Notes:
 
