@@ -10,6 +10,7 @@ import archiver from 'archiver';
 import * as rimraf from 'rimraf';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import cors from 'cors';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,6 +29,15 @@ const apiLimiter = rateLimit({
     message: "Too many requests from this IP, please try again after 15 minutes"
 });
 
+// CORS configuration
+const corsOptions = {
+  origin: 'http://localhost:8080',
+  optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
+};
+
+app.use(cors(corsOptions));
+
+
 // Apply to all requests, unless DISABLE_RATE_LIMIT environment variable is set to 'true'
 if (process.env.VITE_DISABLE_RATE_LIMIT !== 'true') {
     app.use(apiLimiter);
@@ -44,20 +54,6 @@ app.use(express.static(path.join(__dirname, 'dist')));
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
-
-// NOTE: Removed overly permissive CORS. For production, configure specific origins if needed.
-// app.use((req, res, next) => {
-//     res.setHeader('Access-Control-Allow-Origin', '*');
-//     res.setHeader('Access-Control-Request-Method', '*');
-//     res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET, POST');
-//     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-//     if (req.method === 'OPTIONS') {
-//         res.writeHead(200);
-//         res.end();
-//         return;
-//     }
-//     next();
-// });
 
 // YouTube search API
 app.get('/api/search', (req, res) => {
