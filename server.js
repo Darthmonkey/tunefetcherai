@@ -11,6 +11,7 @@ import * as rimraf from 'rimraf';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import cors from 'cors';
+import ffmpeg from 'ffmpeg-static';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -341,6 +342,7 @@ app.post('/api/download-single', async (req, res) => {
                 audioFormat: 'mp3',
                 audioQuality: '0',
                 output: outputPath,
+                ffmpegLocation: ffmpeg,
             });
 
             console.log(`[Server] Successfully downloaded audio to: ${outputPath}`);
@@ -398,6 +400,7 @@ app.post('/api/download-multiple', async (req, res) => {
                 audioFormat: 'mp3',
                 audioQuality: '0',
                 output: outputPath,
+                ffmpegLocation: ffmpeg,
             });
             console.log(`[Server] Successfully downloaded ${trackName}`);
             return { success: true, path: outputPath, trackName, trackId };
