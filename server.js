@@ -32,8 +32,8 @@ const apiLimiter = rateLimit({
 
 // CORS configuration
 const corsOptions = {
-  origin: 'http://localhost:8080',
-  optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
+  origin: '*', // Allow all origins
+  optionsSuccessStatus: 200
 };
 
 app.use(cors(corsOptions));
@@ -144,7 +144,7 @@ app.get('/api/musicbrainz-albums-by-artist', (req, res) => {
 
     https.get(artistSearchUrl, {
         headers: {
-            'User-Agent': 'TuneFetcherAI/1.0 ( your-email@example.com )'
+            'User-Agent': 'TuneFetcherAI/1.0 ( https://github.com/Darthmonkey/tunefetcherai )'
         }
     }, (artistSearchRes) => {
         let artistSearchData = '';
@@ -163,7 +163,7 @@ app.get('/api/musicbrainz-albums-by-artist', (req, res) => {
 
                     https.get(mbSearchUrl, {
                         headers: {
-                            'User-Agent': 'TuneFetcherAI/1.0 ( your-email@example.com )'
+                            'User-Agent': 'TuneFetcherAI/1.0 ( https://github.com/Darthmonkey/tunefetcherai )'
                         }
                     }, (albumSearchRes) => {
                         let albumSearchData = '';
