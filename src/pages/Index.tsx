@@ -472,15 +472,25 @@ const Index = () => {
                   <Music className="h-5 w-5 text-primary" />
                   Selected Album: {allAlbumVersions[currentAlbumVersionIndex]?.title} ({currentAlbumVersionIndex + 1} of {allAlbumVersions.length})
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleShuffleAlbums}
-                  disabled={searchingTracks || findingUrls || allAlbumVersions.length <= 1}
-                >
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Shuffle Albums
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleShuffleAlbums}
+                    disabled={searchingTracks || findingUrls || allAlbumVersions.length <= 1}
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Shuffle Albums
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => handleDownloadMultiple(tracks.filter(t => t.selected), selectedAlbum.title, selectedAlbum.artist)}
+                    disabled={tracks.filter(t => t.selected).length === 0}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Download Selected ({tracks.filter(t => t.selected).length})
+                  </Button>
+                </div>
               </CardTitle>
             <ul className="list-disc pl-5 text-sm text-muted-foreground mt-2">
                 <li>Tracks for this album are being fetched from MusicBrainz, and YouTube URLs are being found using the best available match. Not all tracks will exactly match the track name listed, and some may not have a corresponding YouTube URL.</li>
@@ -503,7 +513,6 @@ const Index = () => {
                     albumName={selectedAlbum.title}
                     artistName={selectedAlbum.artist}
                     onDownloadTrack={handleDownloadTrack}
-                    onDownloadMultiple={handleDownloadMultiple}
                   />
                 )
               )}
@@ -539,7 +548,8 @@ https://www.youtube.com/watch?v=..."
               className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
             >
               {processingManual ? (
-                <>                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Processing URLs...
                 </>
               ) : (

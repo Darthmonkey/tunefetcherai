@@ -11,7 +11,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExternalLink, Download, Loader } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 
 interface TrackInfo {
   id: string;
@@ -30,28 +29,10 @@ interface TrackTableProps {
   albumName: string;
   artistName: string;
   onDownloadTrack: (track: TrackInfo) => void;
-  onDownloadMultiple: (tracks: TrackInfo[], albumName: string, artistName: string) => Promise<void>;
 }
 
-export const TrackTable = ({ tracks, onTracksChange, albumName, artistName, onDownloadTrack, onDownloadMultiple }: TrackTableProps) => {
+export const TrackTable = ({ tracks, onTracksChange, albumName, artistName, onDownloadTrack }: TrackTableProps) => {
   const [isDownloading, setIsDownloading] = useState(false);
-
-  const handleDownloadSelected = async () => {
-    const selectedTracks = tracks.filter(track => track.selected);
-    if (selectedTracks.length === 0) {
-      toast.error("No tracks selected for download.");
-      return;
-    }
-
-    setIsDownloading(true);
-    try {
-      await onDownloadMultiple(selectedTracks, albumName, artistName);
-    } catch (error) {
-      // Error is handled in the parent component
-    } finally {
-      setIsDownloading(false);
-    }
-  };
 
   const toggleTrackSelection = (trackId: string) => {
     const updatedTracks = tracks.map(track =>
@@ -160,17 +141,6 @@ export const TrackTable = ({ tracks, onTracksChange, albumName, artistName, onDo
             ))}
           </TableBody>
         </Table>
-        {selectedCount > 0 && (
-          <div className="mt-4 text-right">
-            <Button onClick={handleDownloadSelected} disabled={isDownloading}>
-              {isDownloading ? (
-                <><Loader className="h-4 w-4 animate-spin mr-2" /> Downloading...</>
-              ) : (
-                `Download Selected (${selectedCount})`
-              )}
-            </Button>
-          </div>
-        )}
       </CardContent>
     </Card>
   );
