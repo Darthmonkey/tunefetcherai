@@ -35,5 +35,4 @@ This file is used to maintain context across sessions with the Gemini CLI agent.
 
 *   [Add ideas for future updates here, but do not implement unless expressly instructed]
 
-*   Integrate a music player.
 *   Allow selection of multiple albums to download all their tracks into a single .zip file.
