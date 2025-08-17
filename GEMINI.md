@@ -34,6 +34,9 @@ This file is used to maintain context across sessions with the Gemini CLI agent.
 ## Completed Actions:
 
 *   Implemented Multi-Album Download and Improved Download Management UI.
+*   Improved YouTube search reliability using `yt-dlp`.
+*   Fixed `MAX_RELEASES_TO_FETCH` definition.
+*   Fixed `undefined` artist name in YouTube search queries.
 *   Corrected the download naming convention for artists and albums.
 *   Added and verified the 'Refresh' button functionality for MusicBrainz track re-discovery.
 *   Disabled track selection checkbox for tracks without a YouTube URL.

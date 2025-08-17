@@ -24,6 +24,8 @@ const USER_AGENT = 'TuneFetcherAI/1.0 ( https://github.com/Darthmonkey/tunefetch
 
 const MAX_RELEASES_TO_FETCH = 10;
 
+const downloadJobs = {};
+
 // Helper function to search YouTube for a track and return its URL
 async function searchYouTubeForTrack(searchQuery) {
     console.log(`[Server] Searching YouTube for: ${searchQuery} using yt-dlp`);
@@ -593,71 +595,141 @@ app.post('/api/download-multiple', async (req, res) => {
 
 app.post('/api/download/albums', async (req, res) => {
     const { albumIds } = req.body;
-    console.log(`[Server] Multi-album download request for album IDs: ${albumIds}`);
+    const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`; // Generate unique jobId
 
-    if (!albumIds || !Array.isArray(albumIds) || albumIds.length === 0) {
-        return res.status(400).json({ error: 'albumIds array is required' });
-    }
+    console.log(`[Server] Multi-album download request received. Job ID: ${jobId}`);
 
-    const mainTempDir = path.join(__dirname, 'temp', `multi_album_download_${Date.now()}`);
+    // Initialize job status
+    downloadJobs[jobId] = {
+        status: 'pending',
+        albums: {},
+        zipUrl: null,
+        failedTracks: [],
+        totalAlbums: albumIds.length,
+        completedAlbums: 0,
+        overallProgress: 0
+    };
+
+    // Initialize individual album statuses
+    albumIds.forEach(albumId => {
+        downloadJobs[jobId].albums[albumId] = {
+            status: 'queued',
+            progress: 0,
+            tracks: {},
+            totalTracks: 0,
+            completedTracks: 0
+        };
+    });
+
+    // Send jobId immediately to client
+    res.json({ success: true, jobId: jobId });
+
+    // Start the actual download process asynchronously
+    processMultiAlbumDownload(jobId, albumIds);
+});
+
+async function processMultiAlbumDownload(jobId, albumIds) {
+    const job = downloadJobs[jobId];
+    const mainTempDir = path.join(__dirname, 'temp', `multi_album_download_${jobId}`);
     fs.mkdirSync(mainTempDir, { recursive: true });
 
-    let allTracksToDownload = [];
-    let albumNames = {};
-
     try {
+        job.status = 'fetching_album_details';
+        job.overallProgress = 5;
+
+        let allTracksToDownload = [];
+        let albumNames = {};
+
         for (const albumId of albumIds) {
+            const album = job.albums[albumId];
+            album.status = 'fetching_details';
+            album.progress = 0;
+
             const albumDetails = await fetchAlbumTracks(albumId);
             if (albumDetails && albumDetails.tracks) {
                 console.log(`[Server] Found ${albumDetails.tracks.length} tracks for album ${albumDetails.title} (${albumId})`);
-                albumNames[albumId] = albumDetails.title; // Store album title for zipping
+                albumNames[albumId] = albumDetails.title;
+                album.totalTracks = albumDetails.tracks.length;
+                album.status = 'searching_youtube';
+
                 for (const track of albumDetails.tracks) {
-                    // For each track, we need to find its YouTube URL
-                    // This will involve calling the YouTube search logic
-                    // For now, we'll just add a placeholder
                     allTracksToDownload.push({
                         albumId: albumId,
                         albumName: albumDetails.title,
                         artistName: albumDetails.artist || '',
                         trackName: track.name,
                         trackId: track.id,
-                        youtubeUrl: null // This will be populated later
+                        youtubeUrl: null
                     });
+                    album.tracks[track.id] = { status: 'queued', progress: 0 };
                 }
+            } else {
+                album.status = 'failed';
+                console.error(`[Server] Failed to fetch details for album ${albumId}`);
+                job.failedTracks.push({ albumId: albumId, error: 'Failed to fetch album details' });
             }
+            job.completedAlbums++;
+            job.overallProgress = (job.completedAlbums / job.totalAlbums) * 10 + 5;
         }
 
-        // Now, for each track, find its YouTube URL
+        job.status = 'searching_youtube';
         for (const track of allTracksToDownload) {
+            const album = job.albums[track.albumId];
+            album.tracks[track.trackId].status = 'searching_youtube';
+
             const searchQuery = `${track.artistName} - ${track.trackName}`;
             track.youtubeUrl = await searchYouTubeForTrack(searchQuery);
             if (track.youtubeUrl === null) {
                 console.warn(`[Server] No YouTube URL found for track: ${track.artistName} - ${track.trackName}`);
+                album.tracks[track.trackId].status = 'failed';
+                job.failedTracks.push({ trackName: track.trackName, id: track.trackId, error: 'No YouTube URL found' });
+            } else {
+                album.tracks[track.trackId].status = 'found_youtube_url';
             }
+            album.completedTracks++;
+            album.progress = (album.completedTracks / album.totalTracks) * 50;
         }
 
         console.log(`[Server] Total tracks initially collected: ${allTracksToDownload.length}`);
-        const tracksWithYoutubeUrl = allTracksToDownload.filter(track => track.youtubeUrl !== null);
-        console.log(`[Server] Tracks with YouTube URL found: ${tracksWithYoutubeUrl.length}`);
+        const tracksToDownload = allTracksToDownload.filter(track => track.youtubeUrl !== null);
+        console.log(`[Server] Tracks with YouTube URL found: ${tracksToDownload.length}`);
         const tracksWithoutYoutubeUrl = allTracksToDownload.filter(track => track.youtubeUrl === null);
         if (tracksWithoutYoutubeUrl.length > 0) {
             console.warn('[Server] Tracks without YouTube URL:');
             tracksWithoutYoutubeUrl.forEach(track => console.warn(`- ${track.artistName} - ${track.trackName}`));
         }
 
-        const tracksToDownload = allTracksToDownload.filter(track => track.youtubeUrl !== null);
-
         if (tracksToDownload.length === 0) {
-            res.status(404).json({ success: false, error: 'No tracks with YouTube URLs found for download.' });
+            job.status = 'failed';
+            job.overallProgress = 100;
+            job.failedTracks.push({ error: 'No tracks with YouTube URLs found for download.' });
             rimraf.rimraf(mainTempDir);
             return;
         }
 
+        job.status = 'downloading_tracks';
+        let downloadedCount = 0;
         const downloadPromises = tracksToDownload.map(track => {
+            const album = job.albums[track.albumId];
+            album.tracks[track.trackId].status = 'downloading';
+
             const trackTempDir = path.join(mainTempDir, track.albumName);
             fs.mkdirSync(trackTempDir, { recursive: true });
             const outputPath = path.join(trackTempDir, `${track.trackName}.mp3`);
-            return downloadWithRetry(track.youtubeUrl, outputPath, track.trackName, track.trackId);
+
+            return downloadWithRetry(track.youtubeUrl, outputPath, track.trackName, track.trackId)
+                .then(result => {
+                    if (result.success) {
+                        album.tracks[track.trackId].status = 'completed';
+                        downloadedCount++;
+                        album.progress = 50 + (downloadedCount / tracksToDownload.length) * 40;
+                        job.overallProgress = 10 + (downloadedCount / tracksToDownload.length) * 80;
+                    } else {
+                        album.tracks[track.trackId].status = 'failed';
+                        job.failedTracks.push({ trackName: track.trackName, id: track.trackId, error: result.error });
+                    }
+                    return result;
+                });
         });
 
         const results = await Promise.all(downloadPromises);
@@ -665,31 +737,39 @@ app.post('/api/download/albums', async (req, res) => {
         const failedDownloads = results.filter(r => !r.success);
 
         if (successfulDownloads.length === 0) {
-            res.status(200).json({ success: false, message: 'All downloads failed', failedTracks: failedDownloads.map(f => ({ trackName: f.trackName, id: f.trackId })) });
+            job.status = 'failed';
+            job.overallProgress = 100;
+            job.failedTracks.push({ error: 'All downloads failed' });
             rimraf.rimraf(mainTempDir);
             return;
         }
 
-        const zipFileName = `TuneFetcher_Albums_${Date.now()}.zip`;
+        job.status = 'zipping_files';
+        job.overallProgress = 95;
+
+        const zipFileName = `TuneFetcher_Albums_${jobId}.zip`;
         const zipPath = path.join(__dirname, 'temp', zipFileName);
         const output = fs.createWriteStream(zipPath);
         const archive = archiver('zip', { zlib: { level: 9 } });
 
         output.on('close', () => {
             console.log(`[Server] Multi-album zip archive created: ${zipPath}`);
-            res.json({ success: true, message: 'Multi-album downloads completed', failedTracks: failedDownloads.map(f => ({ trackName: f.trackName, id: f.trackId })), zipUrl: `/api/download-zip/${zipFileName}` });
+            job.zipUrl = `/api/download-zip/${zipFileName}`;
+            job.status = 'completed';
+            job.overallProgress = 100;
             rimraf.rimraf(mainTempDir);
         });
 
         archive.on('error', (err) => {
             console.error('[Server] Multi-album archiver error:', err);
-            res.status(500).json({ success: false, error: 'Failed to create multi-album archive', failedTracks: failedDownloads.map(f => ({ trackName: f.trackName, id: f.trackId })) });
+            job.status = 'failed';
+            job.overallProgress = 100;
+            job.failedTracks.push({ error: 'Failed to create archive' });
             rimraf.rimraf(mainTempDir);
         });
 
         archive.pipe(output);
         successfulDownloads.forEach(result => {
-            // Add files to zip, organizing by album name
             const albumNameForZip = albumNames[result.albumId] || 'Unknown Album';
             archive.file(result.path, { name: `${albumNameForZip}/${path.basename(result.path)}` });
         });
@@ -697,10 +777,12 @@ app.post('/api/download/albums', async (req, res) => {
 
     } catch (error) {
         console.error('[Server] Error during multi-album download:', error);
-        res.status(500).json({ success: false, error: error.message || 'Failed to process multi-album downloads' });
+        job.status = 'failed';
+        job.overallProgress = 100;
+        job.failedTracks.push({ error: error.message || 'Failed to process multi-album downloads' });
         rimraf.rimraf(mainTempDir);
     }
-});
+}
 
 app.get('/api/download-zip/:filename', (req, res) => {
     const filename = req.params.filename;
@@ -726,6 +808,42 @@ app.get('/api/download-zip/:filename', (req, res) => {
             // Temporarily remove directory cleanup to isolate ERR_HTTP_HEADERS_SENT
             // rimraf.rimraf(path.dirname(filePath)); 
         });
+    });
+});
+
+app.get('/api/download/status/:jobId', (req, res) => {
+    const jobId = req.params.jobId;
+
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+    });
+
+    const sendStatusUpdate = () => {
+        const job = downloadJobs[jobId];
+        if (job) {
+            res.write(`data: ${JSON.stringify(job)}
+
+`);
+            if (job.status === 'completed' || job.status === 'failed') {
+                res.end();
+            }
+        } else {
+            res.write(`data: ${JSON.stringify({ status: 'not_found', jobId: jobId })}
+
+`);
+            res.end();
+        }
+    };
+
+    sendStatusUpdate();
+
+    const intervalId = setInterval(sendStatusUpdate, 1000);
+
+    req.on('close', () => {
+        clearInterval(intervalId);
+        console.log(`[Server] SSE client disconnected for job ${jobId}`);
     });
 });
 

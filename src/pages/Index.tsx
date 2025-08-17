@@ -39,8 +39,10 @@ const Index = () => {
   const [processingManual, setProcessingManual] = useState(false);
   const [searchPlaylists, setSearchPlaylists] = useState(false);
 
-  const [selectedAlbumIds, setSelectedAlbumIds] = useState<string[]>([]); // New state for multi-album selection
-  const [downloadingAlbums, setDownloadingAlbums] = useState(false); // New state for multi-album download loading
+  const [selectedAlbumIds, setSelectedAlbumIds] = useState<string[]>([]);
+  const [downloadingAlbums, setDownloadingAlbums] = useState(false);
+  const [downloadJobId, setDownloadJobId] = useState<string | null>(null);
+  const [downloadJobStatus, setDownloadJobStatus] = useState<any | null>(null);
 
   const handleHome = () => {
     setArtistSearchQuery("");
@@ -312,6 +314,9 @@ const Index = () => {
     }
 
     setDownloadingAlbums(true);
+    setDownloadJobId(null);
+    setDownloadJobStatus(null);
+
     toast.info(`Starting multi-album download for ${selectedAlbumIds.length} albums...`);
 
     try {
@@ -325,39 +330,58 @@ const Index = () => {
 
       if (response.ok) {
         const data = await response.json();
-        if (data.zipUrl) {
-          const zipResponse = await fetch(`http://localhost:3001${data.zipUrl}`);
-          if (zipResponse.ok) {
-            const blob = await zipResponse.blob();
-            const downloadUrl = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = downloadUrl;
-            a.download = `TuneFetcher_Albums.zip`; // Generic name for multi-album zip
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            window.URL.revokeObjectURL(downloadUrl);
-            toast.success(`Downloaded TuneFetcher_Albums.zip`);
-            setSelectedAlbumIds([]); // Clear selection after successful download
-          } else {
-            toast.error(`Failed to download the multi-album zip file.`);
-          }
+        if (data.jobId) {
+          setDownloadJobId(data.jobId);
+          toast.success(`Download job started with ID: ${data.jobId}`);
+
+          const eventSource = new EventSource(`http://localhost:3001/api/download/status/${data.jobId}`);
+
+          eventSource.onmessage = (event) => {
+            const statusData = JSON.parse(event.data);
+            setDownloadJobStatus(statusData);
+            console.log('SSE Update:', statusData);
+
+            if (statusData.status === 'completed' || statusData.status === 'failed') {
+              eventSource.close();
+              setDownloadingAlbums(false);
+              if (statusData.status === 'completed') {
+                toast.success('Multi-album download completed!');
+                if (statusData.zipUrl) {
+                  const zipDownloadUrl = `http://localhost:3001${statusData.zipUrl}`;
+                  const a = document.createElement('a');
+                  a.href = zipDownloadUrl;
+                  a.download = `TuneFetcher_Albums_${statusData.jobId}.zip`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  toast.success(`Downloaded ${a.download}`);
+                }
+              } else {
+                toast.error(`Multi-album download failed: ${statusData.failedTracks.map((t: any) => t.error).join(', ')}`);
+              }
+              setSelectedAlbumIds([]);
+            }
+          };
+
+          eventSource.onerror = (error) => {
+            console.error('SSE Error:', error);
+            eventSource.close();
+            setDownloadingAlbums(false);
+            toast.error('Error receiving download status updates.');
+          };
+
         } else {
-          toast.success(`Multi-album downloads completed.`);
+          toast.error(`Failed to start download job: No jobId received.`);
+          setDownloadingAlbums(false);
         }
-
-        if (data.failedTracks && data.failedTracks.length > 0) {
-          toast.error(`Failed to download some tracks from selected albums: ${data.failedTracks.map((t: any) => t.trackName).join(', ')}`);
-        }
-
       } else {
         const errorData = await response.json();
-        toast.error(`Failed to download albums: ${errorData.error || response.statusText}`);
+        toast.error(`Failed to initiate download: ${errorData.error || response.statusText}`);
+        setDownloadingAlbums(false);
       }
     } catch (error: any) {
-      console.error('Error downloading multiple albums:', error);
-      toast.error(error.message || "Failed to download multiple albums");
-    } finally {
+      console.error('Error initiating multiple album download:', error);
+      toast.error(error.message || "Failed to initiate multiple album download");
       setDownloadingAlbums(false);
     }
   };
@@ -524,7 +548,7 @@ const Index = () => {
                         })}
                       >
                         Year {sortYearOrder === 'asc' && '↑'} {sortYearOrder === 'desc' && '↓'}
-                      </TableHead><TableHead>Actions</TableHead>
+                      </TableHead><TableHead>Status</TableHead><TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -549,7 +573,17 @@ const Index = () => {
                                 );
                               }}
                             />
-                          </TableCell><TableCell className="font-medium">{album.title}</TableCell><TableCell>{album.artist}</TableCell><TableCell>{album['first-release-date'] ? new Date(album['first-release-date']).getFullYear() : 'N/A'}</TableCell><TableCell>
+                          </TableCell><TableCell className="font-medium">{album.title}</TableCell><TableCell>{album.artist}</TableCell><TableCell>{album['first-release-date'] ? new Date(album['first-release-date']).getFullYear() : 'N/A'}</TableCell>
+                          <TableCell>
+                            {downloadJobStatus && downloadJobStatus.albums && downloadJobStatus.albums[album.id] ? (
+                              <div>
+                                {downloadJobStatus.albums[album.id].status} ({downloadJobStatus.albums[album.id].progress.toFixed(0)}%)
+                              </div>
+                            ) : (
+                              'N/A'
+                            )}
+                          </TableCell>
+                          <TableCell>
                             <Button onClick={() => handleAlbumSelect(album)} size="sm">
                               Select
                             </Button>
