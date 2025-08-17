@@ -39,6 +39,9 @@ const Index = () => {
   const [processingManual, setProcessingManual] = useState(false);
   const [searchPlaylists, setSearchPlaylists] = useState(false);
 
+  const [selectedAlbumIds, setSelectedAlbumIds] = useState<string[]>([]); // New state for multi-album selection
+  const [downloadingAlbums, setDownloadingAlbums] = useState(false); // New state for multi-album download loading
+
   const handleHome = () => {
     setArtistSearchQuery("");
     setAlbums([]);
@@ -302,6 +305,63 @@ const Index = () => {
     }
   };
 
+  const handleDownloadSelectedAlbums = async () => {
+    if (selectedAlbumIds.length === 0) {
+      toast.error("Please select at least one album to download.");
+      return;
+    }
+
+    setDownloadingAlbums(true);
+    toast.info(`Starting multi-album download for ${selectedAlbumIds.length} albums...`);
+
+    try {
+      const response = await fetch('http://localhost:3001/api/download/albums', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ albumIds: selectedAlbumIds }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.zipUrl) {
+          const zipResponse = await fetch(`http://localhost:3001${data.zipUrl}`);
+          if (zipResponse.ok) {
+            const blob = await zipResponse.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = `TuneFetcher_Albums.zip`; // Generic name for multi-album zip
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+            toast.success(`Downloaded TuneFetcher_Albums.zip`);
+            setSelectedAlbumIds([]); // Clear selection after successful download
+          } else {
+            toast.error(`Failed to download the multi-album zip file.`);
+          }
+        } else {
+          toast.success(`Multi-album downloads completed.`);
+        }
+
+        if (data.failedTracks && data.failedTracks.length > 0) {
+          toast.error(`Failed to download some tracks from selected albums: ${data.failedTracks.map((t: any) => t.trackName).join(', ')}`);
+        }
+
+      } else {
+        const errorData = await response.json();
+        toast.error(`Failed to download albums: ${errorData.error || response.statusText}`);
+      }
+    } catch (error: any) {
+      console.error('Error downloading multiple albums:', error);
+      toast.error(error.message || "Failed to download multiple albums");
+    } finally {
+      setDownloadingAlbums(false);
+    }
+  };
+
   const processManualUrl = async () => {
     const urls = manualUrls.split('\n').filter(url => url.trim());
 
@@ -434,13 +494,28 @@ const Index = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <Button
+                onClick={handleDownloadSelectedAlbums}
+                className="w-full bg-green-600 text-white hover:bg-green-700"
+                disabled={selectedAlbumIds.length === 0 || downloadingAlbums}
+              >
+                {downloadingAlbums ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Downloading Albums...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download Selected Albums ({selectedAlbumIds.length})
+                  </>
+                )}
+              </Button>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Album Title</TableHead>
-                      <TableHead>Artist</TableHead>
-                      <TableHead 
+                      <TableHead className="w-12">Select</TableHead><TableHead>Album Title</TableHead><TableHead>Artist</TableHead><TableHead 
                         className="cursor-pointer"
                         onClick={() => setSortYearOrder(prev => {
                           if (prev === 'asc') return 'desc';
@@ -449,8 +524,7 @@ const Index = () => {
                         })}
                       >
                         Year {sortYearOrder === 'asc' && '↑'} {sortYearOrder === 'desc' && '↓'}
-                      </TableHead>
-                      <TableHead>Actions</TableHead>
+                      </TableHead><TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -464,10 +538,18 @@ const Index = () => {
                       })
                       .map((album) => (
                         <TableRow key={album.id}>
-                          <TableCell className="font-medium">{album.title}</TableCell>
-                          <TableCell>{album.artist}</TableCell>
-                          <TableCell>{album['first-release-date'] ? new Date(album['first-release-date']).getFullYear() : 'N/A'}</TableCell>
-                          <TableCell>
+                          <TableCell> {/* New TableCell for Checkbox */}
+                            <Checkbox
+                              checked={selectedAlbumIds.includes(album.id)}
+                              onCheckedChange={(checked) => {
+                                setSelectedAlbumIds(prev =>
+                                  checked
+                                    ? [...prev, album.id]
+                                    : prev.filter(id => id !== album.id)
+                                );
+                              }}
+                            />
+                          </TableCell><TableCell className="font-medium">{album.title}</TableCell><TableCell>{album.artist}</TableCell><TableCell>{album['first-release-date'] ? new Date(album['first-release-date']).getFullYear() : 'N/A'}</TableCell><TableCell>
                             <Button onClick={() => handleAlbumSelect(album)} size="sm">
                               Select
                             </Button>

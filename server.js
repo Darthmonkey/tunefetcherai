@@ -20,6 +20,141 @@ const PORT = 3001;
 
 const app = express();
 
+const USER_AGENT = 'TuneFetcherAI/1.0 ( https://github.com/Darthmonkey/tunefetcherai )';
+
+const MAX_RELEASES_TO_FETCH = 10;
+
+// Helper function to search YouTube for a track and return its URL
+async function searchYouTubeForTrack(searchQuery) {
+    console.log(`[Server] Searching YouTube for: ${searchQuery} using yt-dlp`);
+    try {
+        const result = await youtubeDl(`ytsearch:${searchQuery}`, {
+            dumpSingleJson: true, // Dumps JSON for the first result
+            noWarnings: true,
+            callHome: false,
+            noCheckCertificates: true,
+            preferFreeFormats: true,
+            youtubeSkipDashManifest: true,
+            referer: 'https://www.youtube.com/',
+        });
+
+        if (result && result.webpage_url) {
+            console.log(`[Server] Found YouTube URL for "${searchQuery}": ${result.webpage_url}`);
+            return result.webpage_url;
+        } else {
+            console.warn(`[Server] No YouTube URL found for "${searchQuery}"`);
+            return null;
+        }
+    } catch (error) {
+        console.error(`[Server] Error searching YouTube for "${searchQuery}":`, error.message);
+        return null;
+    }
+}
+
+// Refactored and extracted downloadWithRetry function
+async function downloadWithRetry(url, outputPath, trackName, trackId = null, retryCount = 0, maxRetries = 3, retryDelaySeconds = 5) {
+    try {
+        console.log(`[Server] Attempting download for ${trackName} (Attempt ${retryCount + 1}/${maxRetries})`);
+        await youtubeDl(url, {
+            extractAudio: true,
+            audioFormat: 'mp3',
+            audioQuality: '0',
+            output: outputPath,
+            ffmpegLocation: ffmpeg,
+        });
+        console.log(`[Server] Successfully downloaded ${trackName}`);
+        return { success: true, path: outputPath, trackName, trackId };
+    } catch (error) {
+        console.error(`[Server] Download failed for ${trackName}:`, error);
+        if (retryCount < maxRetries - 1) {
+            console.log(`[Server] Retrying in ${retryDelaySeconds} seconds...`);
+            await new Promise(resolve => setTimeout(resolve, retryDelaySeconds * 1000));
+            return await downloadWithRetry(url, outputPath, trackName, trackId, retryCount + 1, maxRetries, retryDelaySeconds);
+        }
+        return { success: false, trackName, trackId, error: error.message };
+    }
+}
+
+// Helper function to fetch detailed release information
+const fetchReleaseDetails = (releaseId) => {
+    return new Promise((resolve, reject) => {
+        const mbDetailsUrl = `https://musicbrainz.org/ws/2/release/${releaseId}?fmt=json&inc=recordings`;
+        https.get(mbDetailsUrl, { headers: { 'User-Agent': USER_AGENT } }, (detailsRes) => {
+            let detailsData = '';
+            detailsRes.on('data', (chunk) => { detailsData += chunk; });
+            detailsRes.on('end', () => {
+                if (detailsRes.statusCode !== 200) {
+                    return reject(new Error(`MusicBrainz details API returned status ${detailsRes.statusCode}`));
+                }
+                try {
+                    const detailsMbData = JSON.parse(detailsData);
+                    const allTracks = detailsMbData.media?.flatMap(mediaItem => Array.isArray(mediaItem.tracks) ? mediaItem.tracks : []) || [];
+                    const tracks = allTracks.map((track) => ({
+                        id: track.id,
+                        name: track.title,
+                        trackNumber: track.position ? parseInt(track.position) : undefined,
+                        artist: track['artist-credit']?.[0]?.artist?.name,
+                        duration: track.length ? Math.floor(track.length / 1000) : undefined,
+                    }));
+                    resolve({
+                        id: detailsMbData.id,
+                        title: detailsMbData.title,
+                        'first-release-date': detailsMbData['first-release-date'],
+                        artist: detailsMbData['artist-credit']?.[0]?.artist?.name,
+                        tracks: tracks,
+                        totalTracks: tracks.length,
+                        disambiguation: detailsMbData.disambiguation,
+                        format: detailsMbData.media?.[0]?.format, // Get format of the first medium
+                    });
+                } catch (parseError) {
+                    reject(new Error(`Error parsing MusicBrainz details data: ${parseError.message}`));
+                }
+            });
+        }).on('error', (e) => {
+            reject(new Error(`Error fetching MusicBrainz details: ${e.message}`));
+        });
+    });
+};
+
+// Helper function to fetch album tracks by release group ID
+const fetchAlbumTracks = async (releaseGroupId) => {
+    const releaseGroupUrl = `https://musicbrainz.org/ws/2/release-group/${releaseGroupId}?fmt=json&inc=releases`;
+    console.log(`[Server] Fetching release group details: ${releaseGroupUrl}`);
+
+    const releaseGroupResponse = await new Promise((resolve, reject) => {
+        https.get(releaseGroupUrl, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
+            let data = '';
+            res.on('data', (chunk) => data += chunk);
+            res.on('end', () => {
+                if (res.statusCode !== 200) {
+                    return reject(new Error(`MusicBrainz release group API returned status ${res.statusCode}`));
+                }
+                try {
+                    resolve(JSON.parse(data));
+                } catch (e) {
+                    reject(new Error(`Error parsing release group data: ${e.message}`));
+                }
+            });
+        }).on('error', (e) => {
+            reject(new Error(`Error fetching release group: ${e.message}`));
+        });
+    });
+
+    if (!releaseGroupResponse.releases || releaseGroupResponse.releases.length === 0) {
+        throw new Error(`No releases found for release group ${releaseGroupId}`);
+    }
+
+    // Try to find a suitable release (e.g., a digital album, or the first one available)
+    const suitableRelease = releaseGroupResponse.releases.find(r => r.media && r.media.some(m => m.format === 'Digital Media')) || releaseGroupResponse.releases[0];
+
+    if (!suitableRelease) {
+        throw new Error(`No suitable release found for release group ${releaseGroupId}`);
+    }
+
+    console.log(`[Server] Found suitable release ${suitableRelease.id} for release group ${releaseGroupId}`);
+    return await fetchReleaseDetails(suitableRelease.id);
+};
+
 // Apply security middleware
 app.use(helmet());
 
@@ -57,62 +192,24 @@ app.get('/', (req, res) => {
 });
 
 // YouTube search API
-app.get('/api/search', (req, res) => {
+app.get('/api/search', async (req, res) => {
     const searchQuery = req.query.q;
-    const youtubeUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery)}`;
-    console.log(`[Server] Searching YouTube for: ${searchQuery}`);
-    console.log(`[Server] Fetching YouTube URL: ${youtubeUrl}`);
+    if (!searchQuery) {
+        return res.status(400).json({ error: 'Search query is required' });
+    }
 
-    https.get(youtubeUrl, (youtubeRes) => {
-        let html = '';
-        youtubeRes.on('data', (chunk) => {
-            html += chunk;
-        });
-        youtubeRes.on('end', () => {
-            try {
-                const ytInitialDataMatch = html.match(/var ytInitialData = ({.*?});/);
-                if (ytInitialDataMatch && ytInitialDataMatch[1]) {
-                    console.log('[Server] Found ytInitialData in HTML.');
-                    const ytInitialData = JSON.parse(ytInitialDataMatch[1]);
-                    const contents = ytInitialData.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
-
-                    let videoId = null;
-                    if (contents) {
-                        for (const section of contents) {
-                            if (section.itemSectionRenderer && section.itemSectionRenderer.contents) {
-                                for (const item of section.itemSectionRenderer.contents) {
-                                    if (item.videoRenderer && item.videoRenderer.videoId) {
-                                        videoId = item.videoRenderer.videoId;
-                                        console.log(`[Server] Found videoId: ${videoId}`);
-                                        break;
-                                    }
-                                }
-                            }
-                            if (videoId) break;
-                        }
-                    }
-
-                    if (videoId) {
-                        const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-                        res.json({ url: videoUrl });
-                        console.log(`[Server] Responded with video URL: ${videoUrl}`);
-                    } else {
-                        console.warn('[Server] No videoId found in ytInitialData structure.');
-                        res.status(404).json({ error: 'No video found in ytInitialData' });
-                    }
-                } else {
-                    console.warn('[Server] ytInitialData not found in HTML or regex failed.');
-                    res.status(404).json({ error: 'ytInitialData not found in HTML' });
-                }
-            } catch (parseError) {
-                console.error('[Server] Error parsing ytInitialData:', parseError);
-                res.status(500).json({ error: 'Failed to parse YouTube data' });
-            }
-        });
-    }).on('error', (e) => {
-        console.error('[Server] Error fetching data from YouTube:', e);
-        res.status(500).json({ error: 'Failed to fetch data from YouTube' });
-    });
+    try {
+        const videoUrl = await searchYouTubeForTrack(searchQuery);
+        if (videoUrl) {
+            res.json({ url: videoUrl });
+            console.log(`[Server] Responded with video URL: ${videoUrl}`);
+        } else {
+            res.status(404).json({ error: 'No video found for the search query' });
+        }
+    } catch (error) {
+        console.error('[Server] Error in /api/search:', error);
+        res.status(500).json({ error: 'Failed to search YouTube' });
+    }
 });
 
 app.get('/api/get-youtube-title', async (req, res) => {
@@ -217,9 +314,6 @@ app.get('/api/musicbrainz-search', async (req, res) => {
         return res.status(400).json({ success: false, error: 'Artist and album are required' });
     }
 
-    const USER_AGENT = 'TuneFetcherAI/1.0 ( your-email@example.com )';
-    const MAX_RELEASES_TO_FETCH = 10; // Limit the number of detailed releases to fetch
-
     // Helper function to fetch detailed release information
     const fetchReleaseDetails = (releaseId) => {
         return new Promise((resolve, reject) => {
@@ -238,14 +332,14 @@ app.get('/api/musicbrainz-search', async (req, res) => {
                             id: track.id,
                             name: track.title,
                             trackNumber: track.position ? parseInt(track.position) : undefined,
-                            artist: track['artist-credit']?.[0]?.artist?.name || artist,
+                            artist: track['artist-credit']?.[0]?.artist?.name,
                             duration: track.length ? Math.floor(track.length / 1000) : undefined,
                         }));
                         resolve({
                             id: detailsMbData.id,
                             title: detailsMbData.title,
                             'first-release-date': detailsMbData['first-release-date'],
-                            artist: detailsMbData['artist-credit']?.[0]?.artist?.name || artist,
+                            artist: detailsMbData['artist-credit']?.[0]?.artist?.name,
                             tracks: tracks,
                             totalTracks: tracks.length,
                             disambiguation: detailsMbData.disambiguation,
@@ -259,6 +353,45 @@ app.get('/api/musicbrainz-search', async (req, res) => {
                 reject(new Error(`Error fetching MusicBrainz details: ${e.message}`));
             });
         });
+    };
+
+    // Helper function to fetch album tracks by release group ID
+    const fetchAlbumTracks = async (releaseGroupId) => {
+        const releaseGroupUrl = `https://musicbrainz.org/ws/2/release-group/${releaseGroupId}?fmt=json&inc=releases`;
+        console.log(`[Server] Fetching release group details: ${releaseGroupUrl}`);
+
+        const releaseGroupResponse = await new Promise((resolve, reject) => {
+            https.get(releaseGroupUrl, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
+                let data = '';
+                res.on('data', (chunk) => data += chunk);
+                res.on('end', () => {
+                    if (res.statusCode !== 200) {
+                        return reject(new Error(`MusicBrainz release group API returned status ${res.statusCode}`));
+                    }
+                    try {
+                        resolve(JSON.parse(data));
+                    } catch (e) {
+                        reject(new Error(`Error parsing release group data: ${e.message}`));
+                    }
+                });
+            }).on('error', (e) => {
+                reject(new Error(`Error fetching release group: ${e.message}`));
+            });
+        });
+
+        if (!releaseGroupResponse.releases || releaseGroupResponse.releases.length === 0) {
+            throw new Error(`No releases found for release group ${releaseGroupId}`);
+        }
+
+        // Try to find a suitable release (e.g., a digital album, or the first one available)
+        const suitableRelease = releaseGroupResponse.releases.find(r => r.media && r.media.some(m => m.format === 'Digital Media')) || releaseGroupResponse.releases[0];
+
+        if (!suitableRelease) {
+            throw new Error(`No suitable release found for release group ${releaseGroupId}`);
+        }
+
+        console.log(`[Server] Found suitable release ${suitableRelease.id} for release group ${releaseGroupId}`);
+        return await fetchReleaseDetails(suitableRelease.id);
     };
 
     try {
@@ -361,9 +494,9 @@ app.post('/api/download-single', async (req, res) => {
         }
     }
 
-    const downloadSuccessful = await downloadWithRetry(videoUrl, outputPath, 0);
+    const downloadSuccessful = await downloadWithRetry(videoUrl, outputPath, trackName);
 
-    if (downloadSuccessful) {
+    if (downloadSuccessful.success) {
         res.download(outputPath, `${trackName}.mp3`, (err) => {
             if (err) {
                 console.error('[Server] Error sending file:', err);
@@ -372,7 +505,7 @@ app.post('/api/download-single', async (req, res) => {
         });
     } else {
         res.status(500).json({ error: `Failed to download track after multiple retries.` });
-        rimraf(tempDir);
+        rimraf.rimraf(tempDir);
     }
 });
 
@@ -389,12 +522,13 @@ app.post('/api/download-multiple', async (req, res) => {
 
     const downloadPromises = tracks.map(track => {
         const outputPath = path.join(tempDir, `${track.name}.mp3`);
-        return downloadWithRetry(track.youtubeUrl, outputPath, 0, track.name, track.id);
+        return downloadWithRetry(track.youtubeUrl, outputPath, track.name, track.id);
     });
 
-    async function downloadWithRetry(url, outputPath, retryCount, trackName, trackId) {
+    // Refactored and extracted downloadWithRetry function
+    async function downloadWithRetry(url, outputPath, trackName, trackId = null, retryCount = 0, maxRetries = 3, retryDelaySeconds = 5) {
         try {
-            console.log(`[Server] Attempting download for ${trackName} (Attempt ${retryCount + 1})`);
+            console.log(`[Server] Attempting download for ${trackName} (Attempt ${retryCount + 1}/${maxRetries})`);
             await youtubeDl(url, {
                 extractAudio: true,
                 audioFormat: 'mp3',
@@ -406,9 +540,10 @@ app.post('/api/download-multiple', async (req, res) => {
             return { success: true, path: outputPath, trackName, trackId };
         } catch (error) {
             console.error(`[Server] Download failed for ${trackName}:`, error);
-            if (retryCount < 2) {
-                await new Promise(resolve => setTimeout(resolve, 5000));
-                return await downloadWithRetry(url, outputPath, retryCount + 1, trackName, trackId);
+            if (retryCount < maxRetries - 1) {
+                console.log(`[Server] Retrying in ${retryDelaySeconds} seconds...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelaySeconds * 1000));
+                return await downloadWithRetry(url, outputPath, trackName, trackId, retryCount + 1, maxRetries, retryDelaySeconds);
             }
             return { success: false, trackName, trackId, error: error.message };
         }
@@ -453,6 +588,117 @@ app.post('/api/download-multiple', async (req, res) => {
         console.error('[Server] Error during multi-download:', error);
         res.status(500).json({ success: false, error: 'Failed to process downloads', failedTracks: failedDownloads.map(f => ({ trackName: f.trackName, id: f.trackId })) });
         rimraf.rimraf(tempDir);
+    }
+});
+
+app.post('/api/download/albums', async (req, res) => {
+    const { albumIds } = req.body;
+    console.log(`[Server] Multi-album download request for album IDs: ${albumIds}`);
+
+    if (!albumIds || !Array.isArray(albumIds) || albumIds.length === 0) {
+        return res.status(400).json({ error: 'albumIds array is required' });
+    }
+
+    const mainTempDir = path.join(__dirname, 'temp', `multi_album_download_${Date.now()}`);
+    fs.mkdirSync(mainTempDir, { recursive: true });
+
+    let allTracksToDownload = [];
+    let albumNames = {};
+
+    try {
+        for (const albumId of albumIds) {
+            const albumDetails = await fetchAlbumTracks(albumId);
+            if (albumDetails && albumDetails.tracks) {
+                console.log(`[Server] Found ${albumDetails.tracks.length} tracks for album ${albumDetails.title} (${albumId})`);
+                albumNames[albumId] = albumDetails.title; // Store album title for zipping
+                for (const track of albumDetails.tracks) {
+                    // For each track, we need to find its YouTube URL
+                    // This will involve calling the YouTube search logic
+                    // For now, we'll just add a placeholder
+                    allTracksToDownload.push({
+                        albumId: albumId,
+                        albumName: albumDetails.title,
+                        artistName: albumDetails.artist || '',
+                        trackName: track.name,
+                        trackId: track.id,
+                        youtubeUrl: null // This will be populated later
+                    });
+                }
+            }
+        }
+
+        // Now, for each track, find its YouTube URL
+        for (const track of allTracksToDownload) {
+            const searchQuery = `${track.artistName} - ${track.trackName}`;
+            track.youtubeUrl = await searchYouTubeForTrack(searchQuery);
+            if (track.youtubeUrl === null) {
+                console.warn(`[Server] No YouTube URL found for track: ${track.artistName} - ${track.trackName}`);
+            }
+        }
+
+        console.log(`[Server] Total tracks initially collected: ${allTracksToDownload.length}`);
+        const tracksWithYoutubeUrl = allTracksToDownload.filter(track => track.youtubeUrl !== null);
+        console.log(`[Server] Tracks with YouTube URL found: ${tracksWithYoutubeUrl.length}`);
+        const tracksWithoutYoutubeUrl = allTracksToDownload.filter(track => track.youtubeUrl === null);
+        if (tracksWithoutYoutubeUrl.length > 0) {
+            console.warn('[Server] Tracks without YouTube URL:');
+            tracksWithoutYoutubeUrl.forEach(track => console.warn(`- ${track.artistName} - ${track.trackName}`));
+        }
+
+        const tracksToDownload = allTracksToDownload.filter(track => track.youtubeUrl !== null);
+
+        if (tracksToDownload.length === 0) {
+            res.status(404).json({ success: false, error: 'No tracks with YouTube URLs found for download.' });
+            rimraf.rimraf(mainTempDir);
+            return;
+        }
+
+        const downloadPromises = tracksToDownload.map(track => {
+            const trackTempDir = path.join(mainTempDir, track.albumName);
+            fs.mkdirSync(trackTempDir, { recursive: true });
+            const outputPath = path.join(trackTempDir, `${track.trackName}.mp3`);
+            return downloadWithRetry(track.youtubeUrl, outputPath, track.trackName, track.trackId);
+        });
+
+        const results = await Promise.all(downloadPromises);
+        const successfulDownloads = results.filter(r => r.success);
+        const failedDownloads = results.filter(r => !r.success);
+
+        if (successfulDownloads.length === 0) {
+            res.status(200).json({ success: false, message: 'All downloads failed', failedTracks: failedDownloads.map(f => ({ trackName: f.trackName, id: f.trackId })) });
+            rimraf.rimraf(mainTempDir);
+            return;
+        }
+
+        const zipFileName = `TuneFetcher_Albums_${Date.now()}.zip`;
+        const zipPath = path.join(__dirname, 'temp', zipFileName);
+        const output = fs.createWriteStream(zipPath);
+        const archive = archiver('zip', { zlib: { level: 9 } });
+
+        output.on('close', () => {
+            console.log(`[Server] Multi-album zip archive created: ${zipPath}`);
+            res.json({ success: true, message: 'Multi-album downloads completed', failedTracks: failedDownloads.map(f => ({ trackName: f.trackName, id: f.trackId })), zipUrl: `/api/download-zip/${zipFileName}` });
+            rimraf.rimraf(mainTempDir);
+        });
+
+        archive.on('error', (err) => {
+            console.error('[Server] Multi-album archiver error:', err);
+            res.status(500).json({ success: false, error: 'Failed to create multi-album archive', failedTracks: failedDownloads.map(f => ({ trackName: f.trackName, id: f.trackId })) });
+            rimraf.rimraf(mainTempDir);
+        });
+
+        archive.pipe(output);
+        successfulDownloads.forEach(result => {
+            // Add files to zip, organizing by album name
+            const albumNameForZip = albumNames[result.albumId] || 'Unknown Album';
+            archive.file(result.path, { name: `${albumNameForZip}/${path.basename(result.path)}` });
+        });
+        archive.finalize();
+
+    } catch (error) {
+        console.error('[Server] Error during multi-album download:', error);
+        res.status(500).json({ success: false, error: error.message || 'Failed to process multi-album downloads' });
+        rimraf.rimraf(mainTempDir);
     }
 });
 

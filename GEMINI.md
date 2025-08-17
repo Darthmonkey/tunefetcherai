@@ -4,7 +4,28 @@ This file is used to maintain context across sessions with the Gemini CLI agent.
 
 ## Proposed Changes:
 
-*   [List proposed changes here]
+### Major Upgrade Plan: Multi-Album Download & Improved Download Management UI
+
+**1. Backend Modifications (`server.js`):**
+    *   **New API Endpoint:** Create `POST /api/download/albums` to accept an array of album IDs.
+    *   **Batch Download Logic:** Modify existing download logic to iterate through multiple albums, fetch tracks, and initiate downloads for all.
+    *   **Single Archive Creation:** Utilize `archiver` to zip all downloaded tracks from selected albums into one file.
+    *   **Enhanced Status Tracking:** Implement a more sophisticated server-side state management for multi-album downloads, providing overall and individual track/album progress.
+    *   **Long-Running Operations:** Address potential timeouts and long-running operations for large downloads.
+
+**2. Frontend Modifications (`src/App.tsx` and components):**
+    *   **Album Selection UI:** Add checkboxes or similar controls for selecting multiple albums from search results or a dedicated view.
+    *   **"Download Selected Albums" Button:** Implement a button to trigger the new `POST /api/download/albums` endpoint.
+    *   **Download Progress UI:**
+        *   Display a clear overall progress bar for multi-album downloads.
+        *   Show individual progress for each album.
+        *   Optionally, show progress for each track within an album.
+        *   Provide informative status messages (e.g., "Downloading Album X - Track Y", "Zipping files...").
+    *   **Error Handling:** Display user-friendly error messages for multi-album download failures.
+
+**3. Refactoring and Testing:**
+    *   Refactor existing download logic for reusability across single and multi-album downloads.
+    *   Outline where unit/integration tests would be added for new backend APIs and frontend components.
 
 ## In Progress:
 
@@ -12,6 +33,7 @@ This file is used to maintain context across sessions with the Gemini CLI agent.
 
 ## Completed Actions:
 
+*   Implemented Multi-Album Download and Improved Download Management UI.
 *   Corrected the download naming convention for artists and albums.
 *   Added and verified the 'Refresh' button functionality for MusicBrainz track re-discovery.
 *   Disabled track selection checkbox for tracks without a YouTube URL.
