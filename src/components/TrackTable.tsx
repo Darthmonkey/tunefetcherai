@@ -32,7 +32,7 @@ interface TrackTableProps {
 }
 
 export const TrackTable = ({ tracks, onTracksChange, albumName, artistName, onDownloadTrack }: TrackTableProps) => {
-  const [isDownloading, setIsDownloading] = useState(false);
+  
 
   const toggleTrackSelection = (trackId: string) => {
     const updatedTracks = tracks.map(track =>
@@ -131,10 +131,16 @@ export const TrackTable = ({ tracks, onTracksChange, albumName, artistName, onDo
                   <Button
                     size="sm"
                     variant="secondary"
-                    disabled={!track.youtubeUrl || isDownloading}
+                    disabled={!track.youtubeUrl || track.downloadStatus === 'pending'}
                     onClick={() => onDownloadTrack(track)}
                   >
-                    <Download className="h-3 w-3" />
+                    {track.downloadStatus === 'pending' ? (
+                      <span className="flex items-center">
+                        <Loader className="h-3 w-3 animate-spin mr-2" /> Downloading...
+                      </span>
+                    ) : (
+                      <Download className="h-3 w-3" />
+                    )}
                   </Button>
                 </TableCell>
               </TableRow>

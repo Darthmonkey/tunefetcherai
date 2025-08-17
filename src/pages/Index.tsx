@@ -174,6 +174,11 @@ const Index = () => {
       return;
     }
 
+    // Set download status to pending
+    setTracks(prevTracks =>
+      prevTracks.map(t => (t.id === track.id ? { ...t, downloadStatus: 'pending' } : t))
+    );
+
     toast.info(`Starting download for ${track.name}...`);
 
     try {
@@ -196,13 +201,25 @@ const Index = () => {
         a.remove();
         window.URL.revokeObjectURL(downloadUrl);
         toast.success(`Downloaded ${track.name}`);
+        // Set download status to success
+        setTracks(prevTracks =>
+          prevTracks.map(t => (t.id === track.id ? { ...t, downloadStatus: 'success' } : t))
+        );
       } else {
         const errorData = await response.json();
         toast.error(`Failed to download ${track.name}: ${errorData.error || response.statusText}`);
+        // Set download status to failed
+        setTracks(prevTracks =>
+          prevTracks.map(t => (t.id === track.id ? { ...t, downloadStatus: 'failed' } : t))
+        );
       }
     } catch (error: any) {
       console.error('Error downloading track:', error);
       toast.error(error.message || "Failed to download track");
+      // Set download status to failed
+      setTracks(prevTracks =>
+        prevTracks.map(t => (t.id === track.id ? { ...t, downloadStatus: 'failed' } : t))
+      );
     }
   };
 

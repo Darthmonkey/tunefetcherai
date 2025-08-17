@@ -34,5 +34,6 @@ This file is used to maintain context across sessions with the Gemini CLI agent.
 ## Potential Future Updates:
 
 *   [Add ideas for future updates here, but do not implement unless expressly instructed]
-*   Implement real-time download progress bars for individual tracks and potentially for multiple files (requires WebSocket/SSE for backend-frontend communication).
+
 *   Integrate a music player.
+*   Allow selection of multiple albums to download all their tracks into a single .zip file.
