@@ -153,7 +153,7 @@ const Index = () => {
       const updatedTracks = await Promise.all(
         tracksToProcess.map(async (track) => {
           try {
-            const response = await fetch(`http://localhost:3001/api/search?q=${encodeURIComponent(`${artistName} ${track.name}`)}`);
+            const response = await fetch(`http://localhost:3001/api/search?q=${encodeURIComponent(`${artistName} ${track.name}`)}&duration=${track.duration || ''}`);
             const data = await response.json();
             return { ...track, youtubeUrl: data.url, duration: track.duration };
           } catch (error) {
@@ -613,7 +613,7 @@ const Index = () => {
                     disabled={searchingTracks || findingUrls || allAlbumVersions.length <= 1}
                   >
                     <RefreshCw className="h-4 w-4 mr-2" />
-                    Shuffle Albums
+                    Switch Version
                   </Button>
                   <Button
                     size="sm"
